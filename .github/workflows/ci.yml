@@ -18,6 +18,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # `go-version-file: go.mod` pins these to the minimum version the module
+  # declares, so the floor is tested rather than merely asserted. The job below
+  # covers current Go, which is what most people will actually build with.
   test:
     name: test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -39,6 +42,22 @@ jobs:
         run: go build ./...
       - name: Test with race detector
         run: go test -race -shuffle=on ./...
+
+  test-latest-go:
+    name: test (latest Go)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: stable
+          check-latest: true
+      - name: Report the toolchain actually in use
+        run: go version
+      - run: go build ./...
+      - run: go test -race -shuffle=on ./...
 
   lint:
     name: lint
@@ -66,6 +85,9 @@ jobs:
           go mod tidy
           git diff --exit-code -- go.mod go.sum
 
+  # Current Go rather than the module's floor, for two reasons: govulncheck
+  # itself requires a recent toolchain to build, and the standard library it
+  # reports on should be the one the release binaries are actually built with.
   govulncheck:
     name: govulncheck
     runs-on: ubuntu-latest
@@ -75,7 +97,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version-file: go.mod
+          go-version: stable
           check-latest: true
       - name: Scan for known vulnerabilities
         run: |
