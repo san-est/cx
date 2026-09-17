@@ -81,9 +81,28 @@ jobs:
 
       # Signed, publicly verifiable proof that these archives were produced by
       # this workflow from this commit — `gh attestation verify` checks it.
-      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+      - id: attest
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: dist/*.tar.gz
+
+      # GitHub keeps the attestation in its own API, which `gh attestation
+      # verify` queries by digest. Publishing the bundle alongside the archives
+      # as well means the release carries its own proof: verifiable offline,
+      # still verifiable if this repository ever goes away, and visible to
+      # tooling that reads release assets rather than the attestations API.
+      - name: Publish the attestation bundle with the release
+        env:
+          BUNDLE: ${{ steps.attest.outputs.bundle-path }}
+          VERSION: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          cp "$BUNDLE" "dist/cx_${VERSION}.intoto.jsonl"
+          # Checksums are generated before this point, so record it separately
+          # rather than leaving an unverifiable file in the release.
+          cd dist
+          sha256sum "./cx_${VERSION}.intoto.jsonl" >> SHA256SUMS
+          cat SHA256SUMS
 
       - name: Compose release notes
         env:
@@ -126,6 +145,14 @@ jobs:
             echo "gh attestation verify cx_${VERSION}_<os>_<arch>.tar.gz --repo ${REPO}"
             echo '```'
             echo
+            echo "The same proof is attached as \`cx_${VERSION}.intoto.jsonl\`, which verifies"
+            echo 'without contacting the attestations API:'
+            echo
+            echo '```sh'
+            echo "gh attestation verify cx_${VERSION}_<os>_<arch>.tar.gz \\"
+            echo "  --bundle cx_${VERSION}.intoto.jsonl --repo ${REPO}"
+            echo '```'
+            echo
             echo 'And the checksums:'
             echo
             echo '```sh'
@@ -144,4 +171,4 @@ jobs:
             --title "$VERSION" \
             --notes-file dist/NOTES.md \
             --verify-tag \
-            dist/*.tar.gz dist/SHA256SUMS
+            dist/*.tar.gz dist/SHA256SUMS "dist/cx_${VERSION}.intoto.jsonl"
