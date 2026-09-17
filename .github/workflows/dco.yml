@@ -22,8 +22,20 @@ jobs:
           # the script, so no event field can become shell syntax.
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          AUTHOR_TYPE: ${{ github.event.pull_request.user.type }}
+          AUTHOR_LOGIN: ${{ github.event.pull_request.user.login }}
         run: |
           set -euo pipefail
+
+          # Dependabot and friends cannot certify the origin of a patch, and
+          # their commits are signed by GitHub itself. Exempt them here rather
+          # than with a job-level `if`, so this required check still reports a
+          # conclusion instead of being skipped.
+          if [ "$AUTHOR_TYPE" = "Bot" ]; then
+            echo "Pull request authored by the bot '$AUTHOR_LOGIN'; DCO sign-off is not required."
+            exit 0
+          fi
+
           missing=0
           for sha in $(git rev-list --no-merges "${BASE_SHA}..${HEAD_SHA}"); do
             subject=$(git show -s --format='%h %s' "$sha")
