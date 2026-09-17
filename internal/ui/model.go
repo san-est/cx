@@ -108,6 +108,15 @@ func loadCmd() tea.Msg {
 	}
 	msg.gcp, msg.gcpState = g, st
 	msg.adc = cloud.LoadADC()
+
+	prod, err := cloud.LoadProduction()
+	if err != nil && msg.err == nil {
+		// Surfaced rather than swallowed: a configuration cx cannot read must
+		// not quietly mean "nothing here is production".
+		msg.err = err
+	}
+	cloud.MarkProduction(msg.aws, prod, "aws")
+	cloud.MarkProduction(msg.gcp, prod, "gcp")
 	return msg
 }
 
@@ -146,6 +155,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.mode == modeConfirm && m.confirm != nil {
 			switch msg.String() {
 			case "y", "enter":
+				if s := m.confirm.script; s != nil {
+					m.pending = s
+					m.mode, m.confirm = modeNormal, nil
+					return m, tea.Quit
+				}
 				note, err := m.confirm.act()
 				if err != nil {
 					m.notice = err.Error()
@@ -252,11 +266,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if !m.canSwitch {
 				return m, nil
 			}
-			if s := m.scriptForCursor(); s != nil {
-				m.pending = s
-				return m, tea.Quit
+			s := m.scriptForCursor()
+			if s == nil {
+				return m, nil
 			}
-			return m, nil
+			if t, _, ok := m.targetAtCursor(); ok && t.Sensitive {
+				m.mode, m.confirm, m.notice = modeConfirm, switchConfirmation(t, s), ""
+				return m, nil
+			}
+			m.pending = s
+			return m, tea.Quit
 
 		case "x":
 			if !m.canSwitch {
@@ -329,6 +348,10 @@ type confirmation struct {
 	detail string
 	// act performs the change and returns the message to show afterwards.
 	act func() (string, error)
+	// script, when set, is handed to the calling shell instead of running act.
+	// A switch can only take effect once the dashboard exits and the wrapper
+	// sources what it wrote, so this answer quits rather than redrawing.
+	script *shellcfg.Script
 }
 
 // targetAtCursor returns the selected target and which provider it belongs to.
@@ -340,6 +363,17 @@ func (m Model) targetAtCursor() (cloud.Target, string, bool) {
 		return m.gcp[i], "gcp", true
 	}
 	return cloud.Target{}, "", false
+}
+
+// switchConfirmation asks before pointing the shell at a target the user has
+// flagged as production. Unlike a delete this is reversible, but it is the
+// moment at which a later command silently acquires a blast radius.
+func switchConfirmation(t cloud.Target, s *shellcfg.Script) *confirmation {
+	return &confirmation{
+		title:  "Point this shell at " + t.Name + "?",
+		detail: "marked production in " + cloud.ConfigPath(),
+		script: s,
+	}
 }
 
 // deleteConfirmation describes removing the selected target.
@@ -778,9 +812,26 @@ func (m Model) renderAlerts(w int) string {
 	return box("Warnings", len(alerts), w, rows) + "\n"
 }
 
+// nameCell renders a name with its production flag, trimming the name rather
+// than the flag. A narrow terminal dropping the name is a cosmetic loss;
+// dropping the flag would quietly remove the warning this feature exists for.
+func nameCell(t cloud.Target, w int) string {
+	if !t.Sensitive {
+		return pad(truncate(t.Name, w), w)
+	}
+	const tag = " [prod]"
+	if w <= len(tag) {
+		return pad(truncate(tag, w), w)
+	}
+	return pad(truncate(t.Name, w-len(tag))+tag, w)
+}
+
 func (m Model) activeName(ts []cloud.Target) string {
 	for _, t := range ts {
 		if t.Active {
+			if t.Sensitive {
+				return t.Name + " [prod]"
+			}
 			return t.Name
 		}
 	}
@@ -987,7 +1038,7 @@ func (m Model) rowBody(t cloud.Target, row, w int) string {
 
 	// Measure against the plain text, then style. Styling first would make the
 	// widths depend on escape sequences.
-	plain := " " + healthMark(t.Health) + " " + marker + " " + pad(truncate(t.Name, nameW), nameW)
+	plain := " " + healthMark(t.Health) + " " + marker + " " + nameCell(t, nameW)
 	if showKind {
 		plain += " " + pad(truncate(string(t.Kind), kindW), kindW)
 	}

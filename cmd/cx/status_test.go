@@ -42,6 +42,10 @@ func newCloudFixture(t *testing.T) *cloudFixture {
 	}
 	t.Setenv("CLOUDSDK_CONFIG", gcloud)
 
+	// cx's own configuration too: a developer who has flagged targets as
+	// production must not thereby change what these tests see.
+	t.Setenv("CX_CONFIG", filepath.Join(dir, "cx-config-absent"))
+
 	for _, key := range []string{
 		"CLOUDSDK_ACTIVE_CONFIG_NAME", "CLOUDSDK_CORE_PROJECT", "CLOUDSDK_CORE_ACCOUNT",
 		"GOOGLE_APPLICATION_CREDENTIALS",
