@@ -61,10 +61,18 @@ func TestAuditFlagsADCQuotaDriftAsWarnNotDanger(t *testing.T) {
 func TestAuditFlagsCoreProjectOverrideAsDanger(t *testing.T) {
 	// This one genuinely can retarget an apply: the google provider reads
 	// CLOUDSDK_CORE_PROJECT while ignoring gcloud's configuration files.
-	gcp := []Target{{Name: "dev", Scope: "acme-dev", Account: "me@x.com", Active: true}}
+	// The shape LoadGCP really produces: it has already applied the override to
+	// Scope, and ConfiguredScope still holds what the file said. An earlier
+	// version of this test set Scope to the configured value and left
+	// ConfiguredScope empty -- a state no loader can produce -- and so passed
+	// while the Danger branch was unreachable in production.
+	gcp := []Target{{
+		Name: "dev", Account: "me@x.com", Active: true,
+		Scope: "acme-prod", ConfiguredScope: "acme-dev",
+	}}
 	state := GCPState{Active: "dev", Source: SourceShell, ProjectOverride: "acme-prod"}
 
-	alerts := Audit(gcp, state, ADC{Present: true, QuotaProject: "acme-dev"})
+	alerts := Audit(gcp, state, ADC{Present: true, QuotaProject: "acme-prod"})
 	if !hasTitle(alerts, "CLOUDSDK_CORE_PROJECT=acme-prod") {
 		t.Errorf("expected a core-project override alert, got %+v", alerts)
 	}
@@ -73,8 +81,12 @@ func TestAuditFlagsCoreProjectOverrideAsDanger(t *testing.T) {
 	}
 
 	// Agreeing with the configuration is merely worth noting.
+	agreeingTargets := []Target{{
+		Name: "dev", Account: "me@x.com", Active: true,
+		Scope: "acme-dev", ConfiguredScope: "acme-dev",
+	}}
 	agreeing := GCPState{Active: "dev", Source: SourceShell, ProjectOverride: "acme-dev"}
-	if HasDanger(Audit(gcp, agreeing, ADC{Present: true, QuotaProject: "acme-dev"})) {
+	if HasDanger(Audit(agreeingTargets, agreeing, ADC{Present: true, QuotaProject: "acme-dev"})) {
 		t.Error("an override matching the configuration should not be Danger")
 	}
 }

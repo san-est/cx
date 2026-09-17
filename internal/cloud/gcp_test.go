@@ -139,6 +139,30 @@ func TestGCPCoreEnvOverridesApplyToActiveOnly(t *testing.T) {
 	}
 }
 
+func TestGCPKeepsTheConfiguredProjectAlongsideAnOverride(t *testing.T) {
+	// Audit compares the override against what the file said, to tell a silent
+	// retarget from an override that merely restates the configuration. Scope
+	// no longer holds that value once the override is applied, so losing
+	// ConfiguredScope here would make the Danger alert unreachable without any
+	// test in the audit package noticing.
+	gcloudFixture(t, "dev", map[string]string{"dev": devConfig})
+	t.Setenv("CLOUDSDK_CORE_PROJECT", "proj-override")
+
+	targets, _, err := LoadGCP()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(targets) != 1 {
+		t.Fatalf("got %d targets, want 1", len(targets))
+	}
+	if got := targets[0].Scope; got != "proj-override" {
+		t.Errorf("Scope = %q, want the effective proj-override", got)
+	}
+	if got := targets[0].ConfiguredScope; got != "proj-dev" {
+		t.Errorf("ConfiguredScope = %q, want the configured proj-dev", got)
+	}
+}
+
 func TestGCPConfigWithoutAccountIsKindNone(t *testing.T) {
 	gcloudFixture(t, "bare", map[string]string{"bare": "[core]\nproject = p\n"})
 
