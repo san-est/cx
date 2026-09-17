@@ -23,6 +23,23 @@ go install github.com/san-est/cx/cmd/cx@latest
 echo 'eval "$(cx shell-init zsh)"' >> ~/.zshrc
 ```
 
+Or download a binary for macOS or Linux from
+[Releases](https://github.com/san-est/cx/releases/latest):
+
+```sh
+tar -xzf cx_<version>_<os>_<arch>.tar.gz
+install -m 0755 cx ~/.local/bin/cx
+echo 'eval "$(cx shell-init zsh)"' >> ~/.zshrc
+```
+
+Every archive carries a signed build provenance attestation, so you can confirm
+it was built by the release workflow from this source rather than uploaded by
+hand:
+
+```sh
+gh attestation verify cx_<version>_<os>_<arch>.tar.gz --repo san-est/cx
+```
+
 Or from a clone, which is also how you get `make lint`:
 
 ```sh
@@ -44,6 +61,7 @@ cx use gcp <config>     point this shell at a gcloud configuration
 cx clear [aws|gcp|all]  drop this shell's overrides
 cx prompt               compact status for a shell prompt
 cx shell-init [zsh]     print the shell wrapper
+cx version              print the version, revision, and platform
 ```
 
 The dashboard borrows its shape from k9s: a context block and key map at the

@@ -25,6 +25,7 @@ const usage = `cx - cloud context
   cx prompt [--warn]      compact status for a shell prompt (no network)
                           --warn prints only hazards, nothing when clean
   cx shell-init [zsh]     print the shell wrapper; add to your rc file
+  cx version              print the version, revision, and platform
 
 Switching requires the shell wrapper. Add this to ~/.zshrc:
 
@@ -66,6 +67,8 @@ func main() {
 		os.Exit(runPrompt(warnOnly))
 	case "shell-init":
 		os.Exit(runShellInit(args[1:]))
+	case "version", "--version", "-version":
+		os.Exit(runVersion())
 	case "-h", "--help", "help":
 		fmt.Print(usage)
 		return
