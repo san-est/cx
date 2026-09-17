@@ -60,6 +60,7 @@ cx status               one-shot report; exits 2 if the shell can be misdirected
 cx status --no-probe    same, no network, instant
 cx use aws <profile>    point this shell at an AWS profile
 cx use gcp <config>     point this shell at a gcloud configuration
+                        --yes confirms a target marked production
 cx clear [aws|gcp|all]  drop this shell's overrides
 cx prompt               compact status for a shell prompt
 cx shell-init [shell]   print the shell wrapper (zsh or bash)
@@ -243,6 +244,57 @@ fails silently.
 `shell-init` skips `RPROMPT` when starship is running, since starship rewrites
 it on every render. Set `CX_NO_RPROMPT=1` to skip it in any shell.
 
+## Production targets
+
+Some targets deserve a pause. Name them in `~/.config/cx/config`, by exact name
+or by glob:
+
+```ini
+[production]
+aws = client-prod, *-prod
+gcp = acme-prod, prod-*
+```
+
+`$XDG_CONFIG_HOME` is honoured, and `CX_CONFIG` overrides the path outright.
+
+Flagged targets are marked `[prod]` wherever they appear — the dashboard, the
+context header, `cx status`, and the prompt segment:
+
+```
+~/work  aws:client-prod[prod] gcp:acme-staging
+```
+
+Switching to one asks first:
+
+```
+AWS profile client-prod is marked production. Point this shell at it? [y/N]
+```
+
+In the dashboard, `enter` on a flagged row opens the same confirmation instead
+of switching immediately. Anything other than an explicit `y` or `yes` is a no.
+
+With no terminal to ask on — a script, a CI job — `cx use` **refuses** rather
+than guessing:
+
+```
+cx: AWS profile client-prod is marked production, and there is no terminal to confirm on.
+    Pass --yes if this is deliberate.
+```
+
+A deployment script that means it says `cx use aws client-prod --yes`. One that
+did not mean it fails loudly instead of quietly pointing itself at production.
+
+**This does not change the exit code of `cx status`.** Deploying to production
+is legitimate; a gate that fails on it would teach people to stop using the
+gate. `cx status` still exits `2` only for state that can *misdirect* a command,
+which is a different thing from a command aimed at production on purpose.
+
+Matching is on the target's name rather than its account or project id, because
+the prompt segment and `cx status --no-probe` must answer without touching the
+network, and for several credential kinds the account is known only after a
+probe. A malformed pattern is reported rather than ignored — a typo that
+silently protects nothing is the worst way for this to fail.
+
 ## What it checks
 
 **Per target**
@@ -315,7 +367,7 @@ should not be able to run anything when the wrapper sources the script.
 - [x] Phase 2 — switching via the shell wrapper, environment variables only
 - [ ] Phase 3 — Kubernetes pane, with a per-shell kubeconfig copy so
       `use-context` in one terminal cannot retarget another
-- [ ] Mark targets as production in a config file; require confirmation
+- [x] Mark targets as production in a config file; require confirmation
 - [x] Add and re-authenticate targets from the dashboard
 - [ ] `cx add aws <name>` for static-key profiles from the command line
 

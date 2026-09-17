@@ -21,6 +21,7 @@ const usage = `cx - cloud context
   cx status [--no-probe]  one-shot report; exits 2 if the shell can be misdirected
   cx use aws <profile>    point this shell at an AWS profile
   cx use gcp <config>     point this shell at a gcloud configuration
+                          --yes confirms a target marked production
   cx clear [aws|gcp|all]  drop this shell's overrides
   cx prompt [--warn]      compact status for a shell prompt (no network)
                           --warn prints only hazards, nothing when clean
@@ -124,8 +125,9 @@ func runDashboard() int {
 }
 
 func runUse(args []string) int {
+	args, assumeYes := takeYesFlag(args)
 	if len(args) < 2 {
-		fmt.Fprintln(os.Stderr, "cx: usage: cx use <aws|gcp> <name>")
+		fmt.Fprintln(os.Stderr, "cx: usage: cx use <aws|gcp> <name> [--yes]")
 		return 1
 	}
 	provider, name := args[0], args[1]
@@ -142,6 +144,9 @@ func runUse(args []string) int {
 			listNames(targets)
 			return 1
 		}
+		if code, ok := guardProduction(provider, name, assumeYes); !ok {
+			return code
+		}
 		return applyScript(cloud.SwitchAWS(name))
 
 	case "gcp":
@@ -154,6 +159,9 @@ func runUse(args []string) int {
 			fmt.Fprintf(os.Stderr, "cx: no gcloud configuration %q\n", name)
 			listNames(targets)
 			return 1
+		}
+		if code, ok := guardProduction(provider, name, assumeYes); !ok {
+			return code
 		}
 		return applyScript(cloud.SwitchGCP(name))
 
@@ -202,22 +210,30 @@ func runPrompt(warnOnly bool) int {
 		return 0
 	}
 
+	// An unreadable configuration leaves prod zero-valued, which flags nothing.
+	// A prompt is the wrong place to report that, and cx status already does.
+	prod, _ := cloud.LoadProduction()
+
 	var parts []string
 	if aws, err := cloud.LoadAWS(); err == nil {
 		for _, t := range aws {
 			if t.Active {
-				parts = append(parts, "aws:"+t.Name)
+				parts = append(parts, "aws:"+t.Name+prodTag(prod.Matches("aws", t.Name)))
 				break
 			}
 		}
 	}
 	if state.Active != "" {
+		// The segment shows the project, since that is the blast radius, but
+		// the production flag is matched on the configuration name the user
+		// wrote in their cx configuration.
 		seg := "gcp:" + state.Active
 		for _, t := range gcp {
 			if t.Active && t.Scope != "" {
 				seg = "gcp:" + t.Scope
 			}
 		}
+		seg += prodTag(prod.Matches("gcp", state.Active))
 		// A trailing mark means this shell's target is machine-global: another
 		// terminal can change it. That is the whole reason to show this.
 		if state.Unsafe() || state.GlobalMissing {
@@ -270,6 +286,15 @@ func runStatus(probe bool) int {
 	}
 	adc := cloud.LoadADC()
 
+	// A configuration cx cannot read must be reported, not silently treated as
+	// "nothing is production".
+	prod, err := cloud.LoadProduction()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "cx:", err)
+	}
+	cloud.MarkProduction(aws, prod, "aws")
+	cloud.MarkProduction(gcp, prod, "gcp")
+
 	if probe {
 		cloud.ProbeAWS(ctx, aws, 8)
 		cloud.ProbeGCP(ctx, gcp, 6)
@@ -283,7 +308,7 @@ func runStatus(probe bool) int {
 	}
 	for _, t := range aws {
 		fmt.Fprintf(w, "%s%s\t%s\t%s\t%s\t%s\n",
-			activeMark(t.Active), t.Name, t.Kind, dash(t.Account), dash(t.Scope), status(t.Health, t.Detail))
+			activeMark(t.Active), targetName(t), t.Kind, dash(t.Account), dash(t.Scope), status(t.Health, t.Detail))
 	}
 
 	fmt.Fprintln(w, "\nGCP\tACCOUNT\tPROJECT\tSTATUS")
@@ -292,7 +317,7 @@ func runStatus(probe bool) int {
 	}
 	for _, t := range gcp {
 		fmt.Fprintf(w, "%s%s\t%s\t%s\t%s\n",
-			activeMark(t.Active), t.Name, dash(t.Account), dash(t.Scope), status(t.Health, t.Detail))
+			activeMark(t.Active), targetName(t), dash(t.Account), dash(t.Scope), status(t.Health, t.Detail))
 	}
 
 	fmt.Fprintln(w, "\nADC\tQUOTA PROJECT\tSTATUS")
@@ -340,6 +365,21 @@ func listNames(targets []cloud.Target) {
 		names = append(names, t.Name)
 	}
 	fmt.Fprintln(os.Stderr, "available:", strings.Join(names, ", "))
+}
+
+// targetName renders a name with its production flag, for the plain report.
+func targetName(t cloud.Target) string {
+	return t.Name + prodTag(t.Sensitive)
+}
+
+// prodTag marks a target the user has flagged as production. Deliberately not
+// the "!" used for a machine-global gcloud target: they are different problems
+// and a reader should not have to work out which one a mark means.
+func prodTag(sensitive bool) string {
+	if sensitive {
+		return "[prod]"
+	}
+	return ""
 }
 
 func activeMark(active bool) string {
