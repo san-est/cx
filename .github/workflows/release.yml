@@ -1,0 +1,142 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  # A tag can point at any commit, including one that never passed CI. Re-run
+  # the suite against exactly what is about to be shipped.
+  verify:
+    name: verify
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          check-latest: true
+      - run: go mod verify
+      - run: go test -race -shuffle=on ./...
+
+  release:
+    name: build and publish
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write      # create the release and upload assets
+      id-token: write      # mint the provenance signing certificate
+      attestations: write  # record the attestation
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          check-latest: true
+
+      - name: Cross-compile
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          # -trimpath keeps absolute build paths out of the binary, so the same
+          # source produces the same bytes regardless of where it was built.
+          for target in darwin/arm64 darwin/amd64 linux/amd64 linux/arm64; do
+            os="${target%/*}"
+            arch="${target#*/}"
+            staging="$(mktemp -d)"
+            GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 \
+              go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" \
+              -o "$staging/cx" ./cmd/cx
+            cp LICENSE NOTICE README.md "$staging/"
+            tar -czf "dist/cx_${VERSION}_${os}_${arch}.tar.gz" -C "$staging" .
+            rm -rf "$staging"
+          done
+          ls -l dist
+
+      - name: Checksums
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum ./*.tar.gz > SHA256SUMS
+          cat SHA256SUMS
+
+      # Signed, publicly verifiable proof that these archives were produced by
+      # this workflow from this commit — `gh attestation verify` checks it.
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/*.tar.gz
+
+      - name: Compose release notes
+        env:
+          VERSION: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          notes=dist/NOTES.md
+
+          # Hand-written notes for this tag, when there are any.
+          if [ -f "docs/releases/${VERSION}.md" ]; then
+            cat "docs/releases/${VERSION}.md" > "$notes"
+            printf '\n\n' >> "$notes"
+          else
+            : > "$notes"
+          fi
+
+          {
+            echo '## Install'
+            echo
+            echo '```sh'
+            echo "go install github.com/${REPO}/cmd/cx@${VERSION}"
+            echo '```'
+            echo
+            echo 'Or download an archive below, then:'
+            echo
+            echo '```sh'
+            echo 'tar -xzf cx_'"${VERSION}"'_<os>_<arch>.tar.gz'
+            echo 'install -m 0755 cx ~/.local/bin/cx'
+            echo 'echo '"'"'eval "$(cx shell-init zsh)"'"'"' >> ~/.zshrc'
+            echo '```'
+            echo
+            echo '## Verify what you downloaded'
+            echo
+            echo 'Every archive carries a signed build provenance attestation, so you can'
+            echo 'confirm it was built by this workflow from this source rather than uploaded'
+            echo 'by hand:'
+            echo
+            echo '```sh'
+            echo "gh attestation verify cx_${VERSION}_<os>_<arch>.tar.gz --repo ${REPO}"
+            echo '```'
+            echo
+            echo 'And the checksums:'
+            echo
+            echo '```sh'
+            echo 'sha256sum -c SHA256SUMS --ignore-missing'
+            echo '```'
+          } >> "$notes"
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          # --verify-tag refuses to invent a tag if the ref is somehow absent.
+          gh release create "$VERSION" \
+            --title "$VERSION" \
+            --notes-file dist/NOTES.md \
+            --verify-tag \
+            dist/*.tar.gz dist/SHA256SUMS
