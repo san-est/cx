@@ -10,6 +10,11 @@ permissions:
 jobs:
   # A tag can point at any commit, including one that never passed CI. Re-run
   # the suite against exactly what is about to be shipped.
+  #
+  # Both jobs use current Go rather than the module's declared floor: published
+  # binaries should carry the newest runtime and standard library fixes, and
+  # they are then tested with the toolchain that actually builds them. CI proves
+  # the floor still compiles on every pull request.
   verify:
     name: verify
     runs-on: ${{ matrix.os }}
@@ -23,7 +28,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version-file: go.mod
+          go-version: stable
           check-latest: true
       - run: go mod verify
       - run: go test -race -shuffle=on ./...
@@ -43,7 +48,7 @@ jobs:
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version-file: go.mod
+          go-version: stable
           check-latest: true
 
       - name: Cross-compile

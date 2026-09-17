@@ -24,12 +24,16 @@ const usage = `cx - cloud context
   cx clear [aws|gcp|all]  drop this shell's overrides
   cx prompt [--warn]      compact status for a shell prompt (no network)
                           --warn prints only hazards, nothing when clean
-  cx shell-init [zsh]     print the shell wrapper; add to your rc file
+  cx shell-init [shell]   print the shell wrapper (zsh or bash); add to your rc file
   cx version              print the version, revision, and platform
 
 Switching requires the shell wrapper. Add this to ~/.zshrc:
 
   eval "$(cx shell-init zsh)"
+
+or to ~/.bashrc:
+
+  eval "$(cx shell-init bash)"
 `
 
 func main() {

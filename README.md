@@ -20,7 +20,8 @@ warn you.
 
 ```sh
 go install github.com/san-est/cx/cmd/cx@latest
-echo 'eval "$(cx shell-init zsh)"' >> ~/.zshrc
+echo 'eval "$(cx shell-init zsh)"' >> ~/.zshrc     # or:
+echo 'eval "$(cx shell-init bash)"' >> ~/.bashrc
 ```
 
 Or download a binary for macOS or Linux from
@@ -47,7 +48,8 @@ make install                        # builds and installs to ~/.local/bin
 echo 'eval "$(cx shell-init zsh)"' >> ~/.zshrc
 ```
 
-The shell wrapper is required for switching, and adds the prompt segment. See
+The shell wrapper is required for switching, and adds the prompt segment. zsh
+and bash are both supported. See
 [Why a wrapper is needed](#why-a-wrapper-is-needed).
 
 ## Usage
@@ -60,7 +62,7 @@ cx use aws <profile>    point this shell at an AWS profile
 cx use gcp <config>     point this shell at a gcloud configuration
 cx clear [aws|gcp|all]  drop this shell's overrides
 cx prompt               compact status for a shell prompt
-cx shell-init [zsh]     print the shell wrapper
+cx shell-init [shell]   print the shell wrapper (zsh or bash)
 cx version              print the version, revision, and platform
 ```
 
@@ -172,6 +174,20 @@ file, so another terminal can change it out from under you:
 It reads only local files — about **5 ms**, versus roughly **800 ms** for a
 single `gcloud config get-value` — so it never stalls a prompt.
 
+### With bash
+
+zsh has a right-hand prompt, so `shell-init` fills in `RPROMPT` for you. bash
+has no equivalent, and overwriting `PS1` would throw away whatever you already
+have there, so it is left to you. `shell-init` defines a `cx_prompt` function
+for the purpose:
+
+```sh
+PS1='\w $(cx_prompt)\$ '
+```
+
+Single quotes matter: `PS1` is expanded on every render, so the command
+substitution has to survive being assigned.
+
 ### Auto-pin
 
 Every new terminal would otherwise start unpinned, falling back to the shared
@@ -259,7 +275,8 @@ exits, anything it exported dies with it.
 
 So `cx` does not try. The wrapper function hands it a scratch file, `cx` writes
 the environment changes there, and the wrapper *sources* that file — which does
-run in your shell, and so can change it. `cx shell-init zsh` prints it.
+run in your shell, and so can change it. `cx shell-init zsh` — or `bash` —
+prints it.
 
 Without the wrapper installed, `cx` says so rather than appearing to work.
 
