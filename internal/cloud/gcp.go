@@ -118,12 +118,13 @@ func LoadGCP() ([]Target, GCPState, error) {
 		project := props.get("core", "project")
 
 		t := Target{
-			Name:    name,
-			Kind:    KindUser,
-			Account: account,
-			Scope:   project,
-			Active:  name == state.Active,
-			Health:  Unknown,
+			Name:            name,
+			Kind:            KindUser,
+			Account:         account,
+			Scope:           project,
+			ConfiguredScope: project,
+			Active:          name == state.Active,
+			Health:          Unknown,
 		}
 		if account == "" {
 			t.Kind = KindNone

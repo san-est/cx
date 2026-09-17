@@ -95,9 +95,13 @@ func Audit(gcp []Target, state GCPState, adc ADC) []Alert {
 		// entirely. So a forgotten export here really can retarget an apply.
 		sev := Warn
 		title := fmt.Sprintf("CLOUDSDK_CORE_PROJECT=%s overrides the active configuration's project", state.ProjectOverride)
-		if active != nil && active.Scope != "" && state.ProjectOverride != active.Scope {
+		// Against ConfiguredScope, not Scope: LoadGCP has already replaced
+		// Scope with the override for the active target, so comparing with it
+		// asks whether the override differs from itself, and this alert could
+		// never reach Danger.
+		if active != nil && active.ConfiguredScope != "" && state.ProjectOverride != active.ConfiguredScope {
 			sev = Danger
-			title = fmt.Sprintf("CLOUDSDK_CORE_PROJECT=%s overrides the gcloud project (%s)", state.ProjectOverride, active.Scope)
+			title = fmt.Sprintf("CLOUDSDK_CORE_PROJECT=%s overrides the gcloud project (%s)", state.ProjectOverride, active.ConfiguredScope)
 		}
 		out = append(out, Alert{
 			Severity: sev,

@@ -71,8 +71,16 @@ type Target struct {
 	// Account is the human-facing owner: an AWS account ID, or a GCP account
 	// email. Populated by a probe where it is not known statically.
 	Account string
-	// Scope is the blast radius: an AWS region, or a GCP project.
+	// Scope is the blast radius: an AWS region, or a GCP project. For the
+	// active GCP target it is the effective value, with any environment
+	// override already applied.
 	Scope string
+	// ConfiguredScope is what the configuration file itself says, before any
+	// environment override. Scope carries the effective value, so once an
+	// override is in force the original is gone -- and comparing the two is
+	// exactly what the audit needs in order to tell a silent retarget from an
+	// override that merely restates the configuration.
+	ConfiguredScope string
 	// Identity is the resolved principal (an AWS ARN, a GCP email).
 	Identity string
 	// Active reports whether this target applies to the current shell.
