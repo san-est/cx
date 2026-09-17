@@ -8,8 +8,8 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/vboyadzhiev/cx/internal/cloud"
-	"github.com/vboyadzhiev/cx/internal/shellcfg"
+	"github.com/san-est/cx/internal/cloud"
+	"github.com/san-est/cx/internal/shellcfg"
 )
 
 // loadedMsg carries the result of the disk-only scan, which is fast enough to

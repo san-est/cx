@@ -1,6 +1,6 @@
 package cloud
 
-import "github.com/vboyadzhiev/cx/internal/shellcfg"
+import "github.com/san-est/cx/internal/shellcfg"
 
 // awsAmbientCreds are credential variables that the AWS CLI consults *before*
 // it looks at AWS_PROFILE. Leaving them set is how a profile switch appears to

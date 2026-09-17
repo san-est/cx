@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/vboyadzhiev/cx/internal/cloud"
+	"github.com/san-est/cx/internal/cloud"
 )
 
 // resizeModel is a populated dashboard with content long enough to overflow a
@@ -17,20 +17,20 @@ func resizeModel(w int) Model {
 		aws: []cloud.Target{
 			{Name: "appex", Kind: cloud.KindStatic, Account: "749929395228",
 				Scope: "eu-west-1", Health: cloud.Valid,
-				Identity: "user/vasil.boyadzhiev@limechain.tech"},
+				Identity: "user/dev@example.com"},
 			{Name: "client-prod", Kind: cloud.KindSSOSession, Account: "999988887777",
 				Scope: "eu-west-1", Active: true, Health: cloud.Valid},
 		},
 		gcp: []cloud.Target{
 			{Name: "devops-platform", Kind: cloud.KindUser,
-				Account: "vasil.boyadzhiev@limechain.tech",
+				Account: "dev@example.com",
 				Scope:   "devops-platform-1234", Active: true, Health: cloud.Valid},
 			{Name: "mirror-node-backup", Kind: cloud.KindUser, Health: cloud.Expired,
 				Detail: "not logged in — run: gcloud auth login"},
 		},
 		gcpState: cloud.GCPState{Active: "devops-platform", Global: "default",
 			Source: cloud.SourceGlobal},
-		adc: cloud.ADC{Present: true, Identity: "vasil.boyadzhiev@limechain.tech",
+		adc: cloud.ADC{Present: true, Identity: "dev@example.com",
 			QuotaProject: "devops-platform-1234", Health: cloud.Valid},
 	}
 }

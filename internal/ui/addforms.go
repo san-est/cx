@@ -3,7 +3,7 @@ package ui
 import (
 	"fmt"
 
-	"github.com/vboyadzhiev/cx/internal/cloud"
+	"github.com/san-est/cx/internal/cloud"
 )
 
 // addEntry is one option in the add menu. It either opens a form that cx fills

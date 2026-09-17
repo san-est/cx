@@ -7,7 +7,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
 
-	"github.com/vboyadzhiev/cx/internal/cloud"
+	"github.com/san-est/cx/internal/cloud"
 )
 
 // TestViewRendersWithoutPanic exercises the layout against a populated model.
@@ -20,7 +20,7 @@ func TestViewRendersWithoutPanic(t *testing.T) {
 		width:     120,
 		aws: []cloud.Target{
 			{Name: "default", Kind: cloud.KindStatic, Account: "111122223333",
-				Scope: "us-east-1", Active: true, Health: cloud.Valid, Identity: "user/vasil"},
+				Scope: "us-east-1", Active: true, Health: cloud.Valid, Identity: "user/dev"},
 			{Name: "oldclient", Kind: cloud.KindStaticTemp, Health: cloud.Expired,
 				Detail: "session token expired"},
 			{Name: "a-very-long-profile-name-that-overflows-its-column",

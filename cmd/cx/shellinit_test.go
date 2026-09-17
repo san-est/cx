@@ -1,10 +1,31 @@
 package main
 
 import (
+	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"testing"
 )
+
+// controlledVars are set by shell-init itself. A developer running these tests
+// from a shell that has cx installed inherits them, which would otherwise mask
+// the very behaviour under test.
+var controlledVars = []string{"CLOUDSDK_ACTIVE_CONFIG_NAME", "CX_NO_AUTOPIN"}
+
+// cleanEnviron is the caller's environment minus the variables these tests set
+// themselves, so the result does not depend on the machine running them.
+func cleanEnviron() []string {
+	var out []string
+	for _, kv := range os.Environ() {
+		name, _, _ := strings.Cut(kv, "=")
+		if slices.Contains(controlledVars, name) {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return out
+}
 
 // runShellSnippet executes shell code and reports the resulting value of one
 // variable, so the emitted script is checked by running it rather than by
@@ -13,8 +34,9 @@ func runShellSnippet(t *testing.T, snippet, env, variable string) string {
 	t.Helper()
 	script := snippet + "\nprintf '%s' \"$" + variable + "\"\n"
 	cmd := exec.Command("/bin/sh", "-c", script)
+	cmd.Env = cleanEnviron()
 	if env != "" {
-		cmd.Env = append(cmd.Environ(), env)
+		cmd.Env = append(cmd.Env, env)
 	}
 	out, err := cmd.Output()
 	if err != nil {

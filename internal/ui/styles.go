@@ -4,7 +4,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/vboyadzhiev/cx/internal/cloud"
+	"github.com/san-est/cx/internal/cloud"
 )
 
 // The palette follows tokyonight, which is what this terminal is already themed

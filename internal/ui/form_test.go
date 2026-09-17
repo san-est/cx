@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/vboyadzhiev/cx/internal/cloud"
+	"github.com/san-est/cx/internal/cloud"
 )
 
 // typeKeys feeds a string to a model one rune at a time, the way a person does.

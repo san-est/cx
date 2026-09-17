@@ -10,9 +10,9 @@ import (
 	"text/tabwriter"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/vboyadzhiev/cx/internal/cloud"
-	"github.com/vboyadzhiev/cx/internal/shellcfg"
-	"github.com/vboyadzhiev/cx/internal/ui"
+	"github.com/san-est/cx/internal/cloud"
+	"github.com/san-est/cx/internal/shellcfg"
+	"github.com/san-est/cx/internal/ui"
 )
 
 const usage = `cx - cloud context

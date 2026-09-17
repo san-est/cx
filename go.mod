@@ -1,4 +1,4 @@
-module github.com/vboyadzhiev/cx
+module github.com/san-est/cx
 
 go 1.27.1
 
