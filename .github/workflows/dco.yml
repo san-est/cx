@@ -1,0 +1,54 @@
+name: DCO
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: sign-off
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Every commit carries a Developer Certificate of Origin sign-off
+        env:
+          # Read through the environment rather than interpolating directly into
+          # the script, so no event field can become shell syntax.
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          missing=0
+          for sha in $(git rev-list --no-merges "${BASE_SHA}..${HEAD_SHA}"); do
+            subject=$(git show -s --format='%h %s' "$sha")
+            if git show -s --format='%B' "$sha" | grep -qiE '^Signed-off-by: .+ <[^<>]+@[^<>]+>[[:space:]]*$'; then
+              echo "ok       $subject"
+            else
+              echo "MISSING  $subject  (author: $(git show -s --format='%an <%ae>' "$sha"))"
+              missing=$((missing + 1))
+            fi
+          done
+          if [ "$missing" -gt 0 ]; then
+            {
+              echo
+              echo "$missing commit(s) lack a 'Signed-off-by:' trailer."
+              echo
+              echo "Adding it certifies you wrote the patch, or otherwise have the"
+              echo "right to submit it under this project's licence."
+              echo "See https://developercertificate.org"
+              echo
+              echo "  Amend the most recent commit:  git commit --amend --signoff"
+              echo "  Fix the whole branch:          git rebase --signoff main"
+              echo
+              echo "Then force-push. To sign off automatically from now on:"
+              echo "  git config --global format.signOff true"
+            } >&2
+            exit 1
+          fi
+          echo "All commits signed off."

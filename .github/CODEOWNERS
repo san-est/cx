@@ -1,0 +1,9 @@
+# Every change requires review from the owner. Enforced by the `main` ruleset's
+# "require review from Code Owners" rule, so this file is a security control,
+# not a suggestion.
+*                       @san-est
+
+# Belt and braces: the files that define CI, permissions, and ownership itself.
+/.github/               @san-est
+/.github/workflows/     @san-est
+/.github/CODEOWNERS     @san-est

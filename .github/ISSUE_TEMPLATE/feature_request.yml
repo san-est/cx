@@ -1,0 +1,43 @@
+name: Feature request
+description: Propose a change or addition
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The README's "Design notes" section records constraints that are not
+        obvious from the code — several tempting features are the bugs this tool
+        exists to detect. Please read it before proposing behaviour changes.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What goes wrong today? Describe the situation, not the solution.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behaviour
+    validations:
+      required: true
+
+  - type: textarea
+    id: safety
+    attributes:
+      label: Effect on credential safety
+      description: >
+        Would this write machine-wide state, run a vendor CLI that mutates
+        configuration, or make cx's report diverge from what the shell resolves
+        to? If none apply, say so.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: willing
+    attributes:
+      label: Contribution
+      options:
+        - label: I am willing to open a pull request for this

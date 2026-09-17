@@ -1,5 +1,11 @@
 # cx — cloud context
 
+[![CI](https://github.com/san-est/cx/actions/workflows/ci.yml/badge.svg)](https://github.com/san-est/cx/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/san-est/cx/actions/workflows/codeql.yml/badge.svg)](https://github.com/san-est/cx/actions/workflows/codeql.yml)
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/san-est/cx/badge)](https://scorecard.dev/viewer/?uri=github.com/san-est/cx)
+[![Go Reference](https://pkg.go.dev/badge/github.com/san-est/cx.svg)](https://pkg.go.dev/github.com/san-est/cx)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+
 A terminal tool for seeing and switching the cloud account your shell is pointed
 at: AWS profiles, gcloud configurations, and Application Default Credentials, on
 one screen.
@@ -11,6 +17,13 @@ gcloud configuration. Between those two facts, `gcloud config list` can say
 warn you.
 
 ## Install
+
+```sh
+go install github.com/san-est/cx/cmd/cx@latest
+echo 'eval "$(cx shell-init zsh)"' >> ~/.zshrc
+```
+
+Or from a clone, which is also how you get `make lint`:
 
 ```sh
 make install                        # builds and installs to ~/.local/bin
@@ -51,7 +64,7 @@ on the selected row.
 ╰───────────────────────────────────────────────────────────────────────────────╯
 ╭─ AWS Profiles(3) ─────────────────────────────────────────────────────────────╮
 │     NAME              KIND           ACCOUNT        SCOPE         STATUS      │
-│ ●   default           static         111122223333   us-east-1     user/vasil  │
+│ ●   default           static         111122223333   us-east-1     user/dev  │
 │ ● ▪ client-prod       sso-session    999988887777   eu-west-1     AWSAdmin    │
 │ ✗   oldclient         static+token   444455556666   eu-central-1  expired     │
 ╰───────────────────────────────────────────────────────────────────────────────╯
@@ -98,7 +111,7 @@ Press `a` to add a target, then pick from the list. Creating one is a form insid
 │  Add AWS profile (access keys)                              │
 │                                                             │
 │    Profile name      *  client-prod                         │
-│    Access key ID     *  AKIAIOSFODNN7EXAMPLE                │
+│    Access key ID     *  AKIAEXAMPLEKEYID                    │
 │  ▸ Secret access key *  •••••••••••••                       │
 │    Session token        optional — temporary credentials    │
 │    Default region       eu-west-1                           │
@@ -278,3 +291,33 @@ make lint   # fmt + vet + test
 make build
 make install
 ```
+
+Tests must not read the ambient environment. `cx` exports
+`CLOUDSDK_ACTIVE_CONFIG_NAME` into every shell it is installed in, so a test
+that inherits the caller's environment will pass in CI and fail on the machine
+of anyone who actually uses the tool.
+
+## Contributing
+
+Patches are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). In short: open an
+issue before anything non-trivial, sign off every commit (`git commit -s`), sign
+commits with a key GitHub can verify, and keep `make lint` green.
+
+Because this tool touches credentials, workflows on pull requests from forks do
+not run until a maintainer approves each run, and `main` requires code-owner
+review, green checks, and resolved conversations. Contributors are also asked to
+abide by the [Code of Conduct](CODE_OF_CONDUCT.md).
+
+## Security
+
+`cx` reads and writes cloud credential files. If you find a way to leak a
+secret, inject a command through a configuration value, or make `cx` report a
+target other than the one the shell resolves to, **please do not open a public
+issue** — use
+[private vulnerability reporting](https://github.com/san-est/cx/security/advisories/new).
+[SECURITY.md](SECURITY.md) sets out the scope, the response targets, and the
+design properties that are treated as security guarantees.
+
+## License
+
+[Apache License 2.0](LICENSE). Copyright 2026 Vasil Boyadzhiev.

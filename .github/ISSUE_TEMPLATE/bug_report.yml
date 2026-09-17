@@ -1,0 +1,65 @@
+name: Bug report
+description: Something in cx behaves incorrectly
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Do not report security vulnerabilities here.** Use
+        [private reporting](https://github.com/san-est/cx/security/advisories/new).
+
+        **Redact account identifiers and never paste credentials.**
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did cx do, and what did you expect instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Configuration shape: two AWS SSO profiles, one gcloud config, ADC present
+        2. Ran `cx use gcp staging`
+        3. `cx status` then reported ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: status-output
+    attributes:
+      label: Output of `cx status --no-probe`
+      description: Redact account ids, project ids, and email addresses.
+      render: text
+    validations:
+      required: false
+
+  - type: input
+    id: version
+    attributes:
+      label: cx version or commit
+      placeholder: "commit f4bc770, or the release tag"
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: OS, shell, and terminal
+      placeholder: "macOS 15.6, zsh 5.9, Ghostty"
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: Before submitting
+      options:
+        - label: This is not a security vulnerability
+          required: true
+        - label: I have removed all credentials and redacted account identifiers
+          required: true

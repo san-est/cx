@@ -1,0 +1,10 @@
+# Normalise line endings so a contributor on Windows cannot turn a whole file
+# into a diff, and so shell scripts keep LF endings and stay executable.
+* text=auto eol=lf
+
+*.go      text eol=lf diff=golang
+*.md      text eol=lf
+*.yml     text eol=lf
+Makefile  text eol=lf
+
+go.sum    -diff linguist-generated=true
