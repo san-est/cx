@@ -20,3 +20,8 @@ updates:
     commit-message:
       prefix: "ci"
     labels: [dependencies, github-actions]
+    groups:
+      # init, autobuild and analyze must run the same version in one job,
+      # so bumping them in separate PRs fails CodeQL on every one of them.
+      codeql-action:
+        patterns: ["github/codeql-action*"]
