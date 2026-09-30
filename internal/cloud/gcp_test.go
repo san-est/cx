@@ -211,3 +211,48 @@ func TestLoadADCAbsent(t *testing.T) {
 		t.Error("absent ADC should explain how to fix it")
 	}
 }
+
+// switchAccountHint is the boilerplate gcloud appends to every auth error. It
+// is the last line of stderr, so it must never be what the user is shown.
+const switchAccountHint = `
+
+If you have already logged in with a different account, run:
+
+  $ gcloud config set account ACCOUNT
+
+to select an already authenticated account to use.
+`
+
+func TestSummarizeGCPErrorNamesTheRealProblem(t *testing.T) {
+	cases := []struct {
+		name, stderr, want string
+	}{
+		{
+			"reauth required",
+			"ERROR: (gcloud.auth.print-access-token) There was a problem refreshing your current auth tokens: Reauthentication failed. cannot prompt during non-interactive execution.\nPlease run:\n\n  $ gcloud auth login\n\nto obtain new credentials." + switchAccountHint,
+			"refresh token rejected - run: gcloud auth login",
+		},
+		{
+			"account never logged in",
+			"ERROR: (gcloud.auth.print-access-token) Your current active account [a@example.com] does not have any valid credentials\nPlease run:\n\n  $ gcloud auth login\n\nto obtain new credentials.",
+			"not logged in - run: gcloud auth login",
+		},
+		{
+			"no active account",
+			"ERROR: (gcloud.auth.print-access-token) You do not currently have an active account selected.\nPlease run:\n\n  $ gcloud auth login\n\nto obtain new credentials." + switchAccountHint,
+			"not logged in - run: gcloud auth login",
+		},
+		{
+			"unrecognised error shows its first line",
+			"ERROR: (gcloud.auth.print-access-token) Something new went wrong." + switchAccountHint,
+			"Something new went wrong.",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := summarizeGCPError(c.stderr, nil); got != c.want {
+				t.Errorf("summarizeGCPError = %q, want %q", got, c.want)
+			}
+		})
+	}
+}

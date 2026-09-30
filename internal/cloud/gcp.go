@@ -206,26 +206,36 @@ func summarizeGCPError(stderr string, ctxErr error) string {
 	if ctxErr != nil {
 		return "timed out"
 	}
-	s := stderr
+	// gcloud's wording varies in case ("Reauthentication failed"), so match
+	// on a lowered copy.
+	s := strings.ToLower(stderr)
 	switch {
 	case strings.Contains(s, "does not have valid credentials"),
-		strings.Contains(s, "Your current active account"),
-		strings.Contains(s, "do not have valid credentials"):
+		strings.Contains(s, "does not have any valid credentials"),
+		strings.Contains(s, "your current active account"),
+		strings.Contains(s, "do not have valid credentials"),
+		strings.Contains(s, "do not currently have an active account"):
 		return "not logged in - run: gcloud auth login"
-	case strings.Contains(s, "reauth"), strings.Contains(s, "invalid_grant"):
-		return "refresh token rejected - re-auth required"
-	case strings.Contains(s, "network"), strings.Contains(s, "Connection"):
+	case strings.Contains(s, "reauth"), strings.Contains(s, "invalid_grant"),
+		strings.Contains(s, "problem refreshing"):
+		return "refresh token rejected - run: gcloud auth login"
+	case strings.Contains(s, "network"), strings.Contains(s, "connection"):
 		return "network unreachable"
 	}
-	lines := strings.Split(strings.TrimSpace(s), "\n")
-	last := strings.TrimSpace(lines[len(lines)-1])
-	if last == "" {
+	// Every gcloud auth error ends with the same boilerplate ("...to select
+	// an already authenticated account to use."), so the last line says
+	// nothing. The first line carries the actual error.
+	first := strings.TrimSpace(strings.SplitN(strings.TrimSpace(stderr), "\n", 2)[0])
+	if i := strings.Index(first, ") "); strings.HasPrefix(first, "ERROR: (") && i > 0 {
+		first = first[i+2:]
+	}
+	if first == "" {
 		return "no valid token"
 	}
-	if len(last) > 70 {
-		last = last[:70] + "..."
+	if len(first) > 70 {
+		first = first[:70] + "..."
 	}
-	return last
+	return first
 }
 
 // ADC describes Application Default Credentials: the credential set used by
