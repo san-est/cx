@@ -99,9 +99,11 @@ jobs:
         with:
           go-version: stable
           check-latest: true
+      # Pinned so CI runs a known scanner rather than whatever @latest is that
+      # day. Dependabot does not update `go install` lines; bump it by hand.
       - name: Scan for known vulnerabilities
         run: |
-          go install golang.org/x/vuln/cmd/govulncheck@latest
+          go install golang.org/x/vuln/cmd/govulncheck@v1.8.0
           govulncheck ./...
 
   dependency-review:
