@@ -1,0 +1,5 @@
+go test fuzz v1
+string("[profile app]\nregion=\nregion=")
+string("profile app")
+string("region")
+string("0")

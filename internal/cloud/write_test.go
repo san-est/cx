@@ -382,3 +382,77 @@ func TestFieldsRoundTripForEditing(t *testing.T) {
 		t.Errorf("gcloud fields = %+v", g)
 	}
 }
+
+func TestRemoveINISectionFromTheMiddle(t *testing.T) {
+	// Removing anything but the last section once deleted only the blank line
+	// after it, and still reported success.
+	p := writeTemp(t, "credentials", "[a]\nk = 1\n\n[b]\nk = 2\n\n[c]\nk = 3\n")
+
+	removed, err := removeINISection(p, "b")
+	if err != nil || !removed {
+		t.Fatalf("removed = %v, err = %v", removed, err)
+	}
+	got, _ := os.ReadFile(p)
+	if want := "[a]\nk = 1\n\n[c]\nk = 3\n"; string(got) != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestRemoveINISectionAtTheEndLeavesNoGap(t *testing.T) {
+	p := writeTemp(t, "credentials", "[a]\nk = 1\n\n[b]\nk = 2\n")
+
+	if _, err := removeINISection(p, "b"); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(p)
+	if want := "[a]\nk = 1\n"; string(got) != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestUpsertKeepsCRLFLineEndings(t *testing.T) {
+	// A credentials file edited on Windows. Rewriting it as LF would change
+	// every section, not just the one being written.
+	p := writeTemp(t, "credentials", "[a]\r\nk = 1\r\n\r\n[b]\r\nk = 2\r\n")
+
+	if err := upsertINISection(p, "b", map[string]string{"k": "3", "j": "4"}); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(p)
+	if want := "[a]\r\nk = 1\r\n\r\n[b]\r\nk = 3\r\nj = 4\r\n"; string(got) != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestUpsertStopsAtAHeaderWithATrailingComment(t *testing.T) {
+	// The parser reads "[b] ; note" as section b, so a key appended to a must
+	// go above it, not into b.
+	p := writeTemp(t, "credentials", "[a]\nk = 1\n[b] ; note\nk = 2\n")
+
+	if err := upsertINISection(p, "a", map[string]string{"j": "3"}); err != nil {
+		t.Fatal(err)
+	}
+	f, err := parseINI(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.get("a", "j") != "3" || f.get("b", "j") != "" {
+		t.Errorf("key landed in the wrong section: a=%v b=%v", f["a"], f["b"])
+	}
+}
+
+func TestUpsertRejectsLineBreaksInValues(t *testing.T) {
+	// A pasted value carrying a newline would otherwise add lines of its own:
+	// here, a whole extra profile.
+	original := "[a]\nk = 1\n"
+	p := writeTemp(t, "credentials", original)
+
+	err := upsertINISection(p, "a", map[string]string{"region": "x\n[evil]\naws_access_key_id = AKIA"})
+	if err == nil {
+		t.Fatal("value with a line break was accepted")
+	}
+	got, _ := os.ReadFile(p)
+	if string(got) != original {
+		t.Errorf("file changed despite the error: %q", got)
+	}
+}

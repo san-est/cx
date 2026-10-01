@@ -59,6 +59,36 @@ jobs:
       - run: go build ./...
       - run: go test -race -shuffle=on ./...
 
+  # The committed corpus under testdata/fuzz already runs as ordinary tests in
+  # the jobs above. This adds a short burst of new inputs per target, which is
+  # cheap insurance on the code that rewrites people's credentials files. `go
+  # test -fuzz` takes one target at a time, hence the matrix.
+  fuzz:
+    name: fuzz (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [FuzzParseINI, FuzzUpsertINISection, FuzzRemoveINISection]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          check-latest: true
+      - name: Fuzz for 60s
+        run: go test ./internal/cloud -run '^$' -fuzz '^${{ matrix.target }}$' -fuzztime 60s
+      # A failure writes the minimised input under testdata/fuzz. Commit it as
+      # a seed alongside the fix so it is checked on every run from then on.
+      - name: Keep the failing input
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fuzz-${{ matrix.target }}
+          path: internal/cloud/testdata/fuzz/${{ matrix.target }}/
+
   lint:
     name: lint
     runs-on: ubuntu-latest
