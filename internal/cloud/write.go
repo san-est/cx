@@ -1,7 +1,6 @@
 package cloud
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -34,33 +33,27 @@ func ValidateName(name string) error {
 // through a parser would silently discard. Everything outside the target
 // section is preserved byte for byte.
 func upsertINISection(path, section string, kv map[string]string) error {
+	// A line break in anything written would start a new line of the file,
+	// letting a pasted value add keys or whole sections of its own.
+	if strings.ContainsAny(section, "\r\n") {
+		return fmt.Errorf("section name contains a line break")
+	}
+	for k, v := range kv {
+		if strings.ContainsAny(k, "\r\n") || strings.ContainsAny(v, "\r\n") {
+			return fmt.Errorf("%s contains a line break", k)
+		}
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
 
-	var lines []string
-	if f, err := os.Open(path); err == nil {
-		sc := bufio.NewScanner(f)
-		sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-		for sc.Scan() {
-			lines = append(lines, sc.Text())
-		}
-		f.Close()
-		if err := sc.Err(); err != nil {
-			return err
-		}
-	} else if !os.IsNotExist(err) {
+	lines, err := readLines(path)
+	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
+	nl := lineEnding(lines)
 
-	header := "[" + section + "]"
-	start := -1
-	for i, l := range lines {
-		if strings.TrimSpace(l) == header {
-			start = i
-			break
-		}
-	}
+	start, end := findINISection(lines, section)
 
 	// Keys are written in a stable order so repeated edits produce no spurious
 	// diffs.
@@ -71,31 +64,25 @@ func upsertINISection(path, section string, kv map[string]string) error {
 	sort.Strings(keys)
 
 	if start < 0 {
-		if len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) != "" {
-			lines = append(lines, "")
+		if n := len(lines); n > 0 {
+			terminate(lines, n, nl)
+			if strings.TrimSpace(lines[n-1]) != "" {
+				lines = append(lines, nl)
+			}
 		}
-		lines = append(lines, header)
+		lines = append(lines, "["+section+"]"+nl)
 		for _, k := range keys {
-			lines = append(lines, k+" = "+kv[k])
+			lines = append(lines, k+" = "+kv[k]+nl)
 		}
-		return writeLines(path, lines)
-	}
-
-	// Find where this section ends: the next top-level section header.
-	end := len(lines)
-	for i := start + 1; i < len(lines); i++ {
-		t := strings.TrimSpace(lines[i])
-		if strings.HasPrefix(t, "[") && strings.HasSuffix(t, "]") {
-			end = i
-			break
-		}
+		return writeFile(path, strings.Join(lines, ""))
 	}
 
 	remaining := map[string]string{}
 	for k, v := range kv {
 		remaining[k] = v
 	}
-	// Update keys already present, in place.
+	// Update keys already present, in place. Every occurrence of a key is
+	// rewritten, not just the first, since the last is the one that is read.
 	for i := start + 1; i < end; i++ {
 		raw := lines[i]
 		if strings.TrimSpace(raw) == "" || raw[0] == ' ' || raw[0] == '\t' {
@@ -106,8 +93,8 @@ func upsertINISection(path, section string, kv map[string]string) error {
 			continue
 		}
 		key := strings.TrimSpace(raw[:eq])
-		if v, ok := remaining[key]; ok {
-			lines[i] = key + " = " + v
+		if v, ok := kv[key]; ok {
+			lines[i] = key + " = " + v + terminator(raw)
 			delete(remaining, key)
 		}
 	}
@@ -116,26 +103,103 @@ func upsertINISection(path, section string, kv map[string]string) error {
 	var added []string
 	for _, k := range keys {
 		if v, ok := remaining[k]; ok {
-			added = append(added, k+" = "+v)
+			added = append(added, k+" = "+v+nl)
 		}
 	}
 	if len(added) > 0 {
+		terminate(lines, end, nl)
 		tail := append([]string{}, lines[end:]...)
 		lines = append(lines[:end], append(added, tail...)...)
 	}
-	return writeLines(path, lines)
+	return writeFile(path, strings.Join(lines, ""))
 }
 
-// writeLines replaces a file atomically, so an interrupted write cannot leave a
-// half-written credentials file behind.
+// findINISection returns the line span [start, end) of the last section named
+// section, header included, or a negative start if there is none.
+//
+// The last, because a name that appears twice is read with the later
+// occurrence winning, and editing an earlier one would write a value nothing
+// then reads.
+func findINISection(lines []string, section string) (start, end int) {
+	for i := len(lines) - 1; i >= 0; i-- {
+		if name, ok := iniHeader(lines[i]); ok && name == section {
+			return i, nextINIHeader(lines, i+1)
+		}
+	}
+	return -1, -1
+}
+
+// nextINIHeader returns the index of the first section header at or after
+// from, or len(lines) if there is none.
+func nextINIHeader(lines []string, from int) int {
+	for i := from; i < len(lines); i++ {
+		if _, ok := iniHeader(lines[i]); ok {
+			return i
+		}
+	}
+	return len(lines)
+}
+
+// readLines returns a file's lines with their terminators still attached, so
+// that joining them reproduces the file exactly. Editing lines without their
+// endings would quietly convert a CRLF file to LF, rewriting every section in
+// it rather than only the one being changed.
+func readLines(path string) ([]string, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	lines := strings.SplitAfter(string(b), "\n")
+	if lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	return lines, nil
+}
+
+// lineEnding returns the terminator new lines should use: whatever the file's
+// first line ends with, so additions match what is already there.
+func lineEnding(lines []string) string {
+	if len(lines) > 0 && strings.HasSuffix(lines[0], "\r\n") {
+		return "\r\n"
+	}
+	return "\n"
+}
+
+// terminator returns the line ending a line from readLines carries, which is
+// empty only for an unterminated last line.
+func terminator(line string) string {
+	switch {
+	case strings.HasSuffix(line, "\r\n"):
+		return "\r\n"
+	case strings.HasSuffix(line, "\n"):
+		return "\n"
+	}
+	return ""
+}
+
+// terminate ends the line before index i with nl if it has no ending, so that
+// a line inserted at i does not run onto it.
+func terminate(lines []string, i int, nl string) {
+	if i > 0 && terminator(lines[i-1]) == "" {
+		lines[i-1] += nl
+	}
+}
+
+// writeLines replaces a file with lines, each terminated by a newline.
 func writeLines(path string, lines []string) error {
+	return writeFile(path, strings.Join(lines, "\n")+"\n")
+}
+
+// writeFile replaces a file atomically, so an interrupted write cannot leave a
+// half-written credentials file behind.
+func writeFile(path, content string) error {
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".cx-*")
 	if err != nil {
 		return err
 	}
 	defer os.Remove(tmp.Name())
 
-	if _, err := tmp.WriteString(strings.Join(lines, "\n") + "\n"); err != nil {
+	if _, err := tmp.WriteString(content); err != nil {
 		tmp.Close()
 		return err
 	}
@@ -291,61 +355,35 @@ func WriteGCPConfig(s GCPConfigSpec) error {
 // byte for byte as it was. A section that is not there is not an error: the
 // caller wants it gone, and it is.
 func removeINISection(path, section string) (bool, error) {
-	f, err := os.Open(path)
+	lines, err := readLines(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return false, nil
 		}
 		return false, err
 	}
-	var lines []string
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	for sc.Scan() {
-		lines = append(lines, sc.Text())
-	}
-	f.Close()
-	if err := sc.Err(); err != nil {
-		return false, err
-	}
 
-	header := "[" + section + "]"
-	start := -1
-	for i, l := range lines {
-		if strings.TrimSpace(l) == header {
-			start = i
+	// Every occurrence goes: leaving a duplicate behind would leave the
+	// section readable, which is the opposite of what was asked.
+	removed := false
+	for {
+		start, end := findINISection(lines, section)
+		if start < 0 {
 			break
 		}
+		// A section's span already takes the blank line separating it from
+		// the next one. The last section has none, so take the one before it
+		// instead, or repeated deletes would leave a growing gap at the end.
+		if end == len(lines) && start > 0 && strings.TrimSpace(lines[start-1]) == "" {
+			start--
+		}
+		lines = append(lines[:start], lines[end:]...)
+		removed = true
 	}
-	if start < 0 {
+	if !removed {
 		return false, nil
 	}
-
-	end := len(lines)
-	for i := start + 1; i < len(lines); i++ {
-		t := strings.TrimSpace(lines[i])
-		if strings.HasPrefix(t, "[") && strings.HasSuffix(t, "]") {
-			end = i
-			break
-		}
-	}
-	// Absorb one trailing blank line so repeated deletes do not leave a
-	// growing gap behind.
-	if end < len(lines) && start > 0 && strings.TrimSpace(lines[end-1]) == "" {
-		end--
-		lines = append(lines[:end], lines[end+1:]...)
-		end = start
-		for i := start; i < len(lines); i++ {
-			t := strings.TrimSpace(lines[i])
-			if strings.HasPrefix(t, "[") && strings.HasSuffix(t, "]") {
-				end = i
-				break
-			}
-			end = i + 1
-		}
-	}
-
-	return true, writeLines(path, append(lines[:start], lines[end:]...))
+	return true, writeFile(path, strings.Join(lines, ""))
 }
 
 // DeleteAWSProfile removes a profile from both AWS files.

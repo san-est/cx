@@ -1,0 +1,5 @@
+go test fuzz v1
+string("[a]\n[]0")
+string("a")
+string("a")
+string("0")

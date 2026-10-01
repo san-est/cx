@@ -49,8 +49,8 @@ func parseINI(path string) (iniFile, error) {
 		}
 
 		if line[0] == '[' {
-			if end := strings.IndexByte(line, ']'); end > 0 {
-				section = strings.TrimSpace(line[1:end])
+			if name, ok := iniHeader(raw); ok {
+				section = name
 				if _, ok := out[section]; !ok {
 					out[section] = map[string]string{}
 				}
@@ -72,6 +72,26 @@ func parseINI(path string) (iniFile, error) {
 		}
 	}
 	return out, sc.Err()
+}
+
+// iniHeader reports whether a raw line is a section header, and its name.
+//
+// The parser and the line editors in write.go must agree on this exactly: if
+// the editor misses a header the parser sees, keys written to one section land
+// in the next.
+func iniHeader(raw string) (string, bool) {
+	if raw == "" || raw[0] == ' ' || raw[0] == '\t' {
+		return "", false
+	}
+	line := strings.TrimSpace(raw)
+	if line == "" || line[0] != '[' {
+		return "", false
+	}
+	end := strings.IndexByte(line, ']')
+	if end < 0 {
+		return "", false
+	}
+	return strings.TrimSpace(line[1:end]), true
 }
 
 // get returns the value of key in section, or "" if either is absent.
