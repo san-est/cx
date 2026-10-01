@@ -50,6 +50,7 @@ const (
 	KindProcess    CredKind = "process"         // credential_process
 	KindUser       CredKind = "user"            // GCP: an authorized user account
 	KindServiceAcc CredKind = "service-account" // GCP: a service account key
+	KindContext    CredKind = "context"         // Kubernetes: a kubeconfig context
 	KindNone       CredKind = "none"            // nothing configured
 )
 

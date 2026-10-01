@@ -46,6 +46,12 @@ func newCloudFixture(t *testing.T) *cloudFixture {
 	// production must not thereby change what these tests see.
 	t.Setenv("CX_CONFIG", filepath.Join(dir, "cx-config-absent"))
 
+	// And Kubernetes: runStatus asks kubectl, so point it at a kubeconfig that
+	// does not exist. Whether or not the machine has kubectl, the result is
+	// then the same -- no contexts, nothing to report.
+	t.Setenv("KUBECONFIG", filepath.Join(dir, "kubeconfig-absent"))
+	t.Setenv("CX_KUBE_DIR", filepath.Join(dir, "kube"))
+
 	for _, key := range []string{
 		"CLOUDSDK_ACTIVE_CONFIG_NAME", "CLOUDSDK_CORE_PROJECT", "CLOUDSDK_CORE_ACCOUNT",
 		"GOOGLE_APPLICATION_CREDENTIALS",
@@ -82,6 +88,50 @@ func (f *cloudFixture) machineWide(name string) {
 func (f *cloudFixture) pinShell(name string) {
 	f.t.Helper()
 	f.t.Setenv("CLOUDSDK_ACTIVE_CONFIG_NAME", name)
+}
+
+// fakeKubectl puts a stand-in kubectl at the front of PATH, so these tests do
+// not depend on the machine having one or on what it is pointed at.
+func (f *cloudFixture) fakeKubectl(stdout string) {
+	f.t.Helper()
+	dir := f.t.TempDir()
+	payload := filepath.Join(dir, "payload.json")
+	if err := os.WriteFile(payload, []byte(stdout), 0o600); err != nil {
+		f.t.Fatal(err)
+	}
+	// Absolute paths throughout: PATH is replaced wholesale, so the stub
+	// cannot rely on finding any command itself.
+	script := "#!/bin/sh\n/bin/cat " + payload + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "kubectl"), []byte(script), 0o755); err != nil {
+		f.t.Fatal(err)
+	}
+	f.t.Setenv("PATH", dir)
+}
+
+// sharedKubeconfig points KUBECONFIG at a file every terminal would read.
+func (f *cloudFixture) sharedKubeconfig(context string) {
+	f.t.Helper()
+	p := filepath.Join(f.t.TempDir(), "config")
+	if err := os.WriteFile(p, []byte("current-context: "+context+"\n"), 0o600); err != nil {
+		f.t.Fatal(err)
+	}
+	f.t.Setenv("KUBECONFIG", p)
+}
+
+// pinnedKubeconfig puts a cx overlay at the front, as a switch would.
+func (f *cloudFixture) pinnedKubeconfig(context string) {
+	f.t.Helper()
+	dir := f.t.TempDir()
+	f.t.Setenv("CX_KUBE_DIR", dir)
+	overlay := filepath.Join(dir, "1234.yaml")
+	if err := os.WriteFile(overlay, []byte("current-context: "+context+"\n"), 0o600); err != nil {
+		f.t.Fatal(err)
+	}
+	shared := filepath.Join(f.t.TempDir(), "config")
+	if err := os.WriteFile(shared, []byte("current-context: other\n"), 0o600); err != nil {
+		f.t.Fatal(err)
+	}
+	f.t.Setenv("KUBECONFIG", overlay+string(os.PathListSeparator)+shared)
 }
 
 // serviceAccountADC writes Application Default Credentials that carry their own
@@ -197,6 +247,38 @@ func TestStatusDoesNotExitTwoForMerelySurprisingState(t *testing.T) {
 
 	if got := statusExitCode(t); got != 0 {
 		t.Errorf("exit code = %d, want 0 — a warning must not fail a deploy gate", got)
+	}
+}
+
+func TestStatusExitsTwoWhenTheKubernetesContextIsShared(t *testing.T) {
+	// The same hazard as gcloud's active_config, in a different file: another
+	// terminal running `kubectl config use-context` retargets this shell.
+	f := newCloudFixture(t)
+	f.sharedKubeconfig("prod")
+	f.fakeKubectl(`{
+	  "current-context": "prod",
+	  "clusters": [{"name": "c"}],
+	  "users": [{"name": "u"}],
+	  "contexts": [{"name": "prod", "context": {"cluster": "c", "user": "u"}}]
+	}`)
+
+	if got := statusExitCode(t); got != 2 {
+		t.Errorf("exit code = %d, want 2 when the kubernetes context is shared", got)
+	}
+}
+
+func TestStatusExitsZeroWhenTheKubernetesContextIsPinned(t *testing.T) {
+	f := newCloudFixture(t)
+	f.pinnedKubeconfig("prod")
+	f.fakeKubectl(`{
+	  "current-context": "prod",
+	  "clusters": [{"name": "c"}],
+	  "users": [{"name": "u"}],
+	  "contexts": [{"name": "prod", "context": {"cluster": "c", "user": "u"}}]
+	}`)
+
+	if got := statusExitCode(t); got != 0 {
+		t.Errorf("exit code = %d, want 0 when the context is this shell's alone", got)
 	}
 }
 

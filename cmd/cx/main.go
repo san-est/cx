@@ -21,8 +21,10 @@ const usage = `cx - cloud context
   cx status [--no-probe]  one-shot report; exits 2 if the shell can be misdirected
   cx use aws <profile>    point this shell at an AWS profile
   cx use gcp <config>     point this shell at a gcloud configuration
+  cx use k8s <context>    point this shell at a Kubernetes context
                           --yes confirms a target marked production
-  cx clear [aws|gcp|all]  drop this shell's overrides
+  cx clear [aws|gcp|k8s|all]
+                          drop this shell's overrides
   cx prompt [--warn]      compact status for a shell prompt (no network)
                           --warn prints only hazards, nothing when clean
   cx shell-init [shell]   print the shell wrapper (zsh or bash); add to your rc file
@@ -127,7 +129,7 @@ func runDashboard() int {
 func runUse(args []string) int {
 	args, assumeYes := takeYesFlag(args)
 	if len(args) < 2 {
-		fmt.Fprintln(os.Stderr, "cx: usage: cx use <aws|gcp> <name> [--yes]")
+		fmt.Fprintln(os.Stderr, "cx: usage: cx use <aws|gcp|k8s> <name> [--yes]")
 		return 1
 	}
 	provider, name := args[0], args[1]
@@ -165,8 +167,33 @@ func runUse(args []string) int {
 		}
 		return applyScript(cloud.SwitchGCP(name))
 
+	case "k8s":
+		targets, state, err := cloud.LoadK8s()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "cx:", err)
+			return 1
+		}
+		if !state.Available {
+			fmt.Fprintln(os.Stderr, "cx: kubernetes is unavailable:", state.Detail)
+			return 1
+		}
+		if !hasTarget(targets, name) {
+			fmt.Fprintf(os.Stderr, "cx: no kubernetes context %q\n", name)
+			listNames(targets)
+			return 1
+		}
+		if code, ok := guardProduction(provider, name, assumeYes); !ok {
+			return code
+		}
+		script, err := cloud.SwitchK8s(name)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "cx: writing the kubeconfig overlay:", err)
+			return 1
+		}
+		return applyScript(script)
+
 	default:
-		fmt.Fprintf(os.Stderr, "cx: unknown provider %q (want aws or gcp)\n", provider)
+		fmt.Fprintf(os.Stderr, "cx: unknown provider %q (want aws, gcp, or k8s)\n", provider)
 		return 1
 	}
 }
@@ -177,10 +204,10 @@ func runClear(args []string) int {
 		what = args[0]
 	}
 	switch what {
-	case "aws", "gcp", "all":
+	case "aws", "gcp", "k8s", "all":
 		return applyScript(cloud.Clear(what))
 	default:
-		fmt.Fprintf(os.Stderr, "cx: unknown scope %q (want aws, gcp, or all)\n", what)
+		fmt.Fprintf(os.Stderr, "cx: unknown scope %q (want aws, gcp, k8s, or all)\n", what)
 		return 1
 	}
 }
@@ -242,6 +269,16 @@ func runPrompt(warnOnly bool) int {
 		parts = append(parts, seg)
 	}
 
+	// PromptK8s rather than LoadK8s: this runs before every prompt, and
+	// LoadK8s costs a kubectl invocation.
+	if name, unsafe := cloud.PromptK8s(); name != "" {
+		seg := "k8s:" + name + prodTag(prod.Matches("k8s", name))
+		if unsafe {
+			seg += "!"
+		}
+		parts = append(parts, seg)
+	}
+
 	if len(parts) > 0 {
 		fmt.Println(strings.Join(parts, " "))
 	}
@@ -295,6 +332,12 @@ func runStatus(probe bool) int {
 	cloud.MarkProduction(aws, prod, "aws")
 	cloud.MarkProduction(gcp, prod, "gcp")
 
+	k8s, k8sState, err := cloud.LoadK8s()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "cx: reading kubernetes config:", err)
+	}
+	cloud.MarkProduction(k8s, prod, "k8s")
+
 	if probe {
 		cloud.ProbeAWS(ctx, aws, 8)
 		cloud.ProbeGCP(ctx, gcp, 6)
@@ -320,6 +363,19 @@ func runStatus(probe bool) int {
 			activeMark(t.Active), targetName(t), dash(t.Account), dash(t.Scope), status(t.Health, t.Detail))
 	}
 
+	// Only shown when there is Kubernetes to show: most shells have none, and
+	// an empty pane would be noise on every one of them.
+	if k8sState.Available {
+		fmt.Fprintln(w, "\nK8S\tCLUSTER\tNAMESPACE\tSTATUS")
+		if len(k8s) == 0 {
+			fmt.Fprintln(w, "(none)\t\t\t")
+		}
+		for _, t := range k8s {
+			fmt.Fprintf(w, "%s%s\t%s\t%s\t%s\n",
+				activeMark(t.Active), targetName(t), dash(t.Account), dash(t.Scope), status(t.Health, t.Detail))
+		}
+	}
+
 	fmt.Fprintln(w, "\nADC\tQUOTA PROJECT\tSTATUS")
 	fmt.Fprintf(w, "%s\t%s\t%s\n", dash(adc.Identity), dash(adc.QuotaProject), status(adc.Health, adc.Detail))
 	w.Flush()
@@ -330,7 +386,12 @@ func runStatus(probe bool) int {
 	}
 	fmt.Println()
 
+	if k8sState.Available && k8sState.Active != "" {
+		fmt.Printf("kubernetes context: %s (%s)\n", k8sState.Active, k8sState.Source)
+	}
+
 	alerts := cloud.Audit(gcp, state, adc)
+	alerts = append(alerts, cloud.AuditK8s(k8s, k8sState)...)
 	for _, a := range alerts {
 		mark := "WARN "
 		if a.Severity == cloud.Danger {

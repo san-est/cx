@@ -129,3 +129,46 @@ func HasDanger(alerts []Alert) bool {
 	}
 	return false
 }
+
+// AuditK8s reports the ways a shell's Kubernetes context can be wrong.
+//
+// It is separate from Audit rather than another parameter because Kubernetes is
+// optional: most shells have no kubectl at all, and a caller with nothing to
+// report should not have to say so.
+func AuditK8s(contexts []Target, state K8sState) []Alert {
+	if !state.Available {
+		return nil
+	}
+	var out []Alert
+
+	// The same hazard as gcloud's active_config, in a different file: the
+	// selection is shared, so another terminal changes this one.
+	if state.Unsafe() {
+		out = append(out, Alert{
+			Severity: Danger,
+			Title:    fmt.Sprintf("kubernetes context %q comes from the shared kubeconfig, not this shell", state.Active),
+			Fix:      "another terminal running `kubectl config use-context` retargets this shell too — run `cx use k8s " + state.Active + "` to pin it",
+		})
+	}
+
+	// current-context naming a context that is not defined fails only when a
+	// command runs, and then with an error about the context rather than about
+	// the selection that chose it.
+	if state.Active != "" {
+		known := false
+		for _, c := range contexts {
+			if c.Name == state.Active {
+				known = true
+				break
+			}
+		}
+		if !known {
+			out = append(out, Alert{
+				Severity: Danger,
+				Title:    fmt.Sprintf("current-context names %q, which is not defined", state.Active),
+				Fix:      "every kubectl command will fail until a context that exists is selected",
+			})
+		}
+	}
+	return out
+}
