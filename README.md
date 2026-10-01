@@ -62,6 +62,7 @@ cx use aws <profile>    point this shell at an AWS profile
 cx use gcp <config>     point this shell at a gcloud configuration
 cx use k8s <context>    point this shell at a Kubernetes context
                         --yes confirms a target marked production
+cx add aws <name>       create a key-based AWS profile
 cx clear [aws|gcp|k8s|all]
                         drop this shell's overrides
 cx prompt               compact status for a shell prompt
@@ -158,6 +159,55 @@ can gate a script:
 ```sh
 cx status --no-probe >/dev/null || { echo "refusing to apply"; exit 1; }
 ```
+
+## Adding a profile from the command line
+
+`cx add aws <name>` creates a key-based AWS profile without opening the
+dashboard:
+
+```sh
+cx add aws client-prod --region eu-west-1
+```
+
+It asks for what the flags did not supply, and **the secret is never echoed**:
+
+```
+Access key ID: AKIAEXAMPLEKEYID
+Secret access key:
+Default region (optional): eu-west-1
+cx: wrote AWS profile client-prod
+    point this shell at it with: cx use aws client-prod
+```
+
+Keys go to `~/.aws/credentials` (mode 600) and settings to `~/.aws/config`,
+which is where the AWS CLI itself puts them.
+
+| Flag | |
+|---|---|
+| `--region <region>` | default region |
+| `--access-key <id>` | access key id; asked for if omitted |
+| `--with-session-token` | also ask for a session token |
+| `--force` | replace an existing profile |
+
+**A credential is never a command-line argument.** A process's arguments are
+readable by every other process on the machine, and they stay in shell history,
+so there is no `--secret-key` flag; passing one is refused with an explanation
+rather than quietly ignored. The secret and the session token are only ever read
+from the terminal or from stdin.
+
+Without a terminal, values are read from stdin one per line, in the order the
+prompts would have come, so the command can be scripted:
+
+```sh
+printf '%s\n%s\n%s\n' "$KEY_ID" "$SECRET" eu-west-1 | cx add aws client-prod
+```
+
+Replacing an existing profile needs `--force`: overwriting one discards
+credentials that may be the only copy.
+
+Only key-based AWS profiles can be created this way. The others are browser
+sign-ins that only the vendor CLI can complete, and the dashboard's `a` already
+runs those.
 
 ## The prompt segment
 
@@ -458,7 +508,7 @@ should not be able to run anything when the wrapper sources the script.
 - [x] Kubernetes pane in the dashboard
 - [x] Mark targets as production in a config file; require confirmation
 - [x] Add and re-authenticate targets from the dashboard
-- [ ] `cx add aws <name>` for static-key profiles from the command line
+- [x] `cx add aws <name>` for static-key profiles from the command line
 
 ## Development
 
