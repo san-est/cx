@@ -20,6 +20,8 @@ type loadedMsg struct {
 	gcpState cloud.GCPState
 	adc      cloud.ADC
 	err      error
+	k8s      []cloud.Target
+	k8sState cloud.K8sState
 }
 
 // execDoneMsg reports that a suspended external command has finished.
@@ -52,6 +54,10 @@ type Model struct {
 	gcp      []cloud.Target
 	gcpState cloud.GCPState
 	adc      cloud.ADC
+	// k8s is empty unless kubectl could be read; the pane is hidden entirely
+	// in that case, since most shells have no Kubernetes at all.
+	k8s      []cloud.Target
+	k8sState cloud.K8sState
 
 	cursor  int
 	probing bool
@@ -109,6 +115,12 @@ func loadCmd() tea.Msg {
 	msg.gcp, msg.gcpState = g, st
 	msg.adc = cloud.LoadADC()
 
+	k, ks, err := cloud.LoadK8s()
+	if err != nil && msg.err == nil {
+		msg.err = err
+	}
+	msg.k8s, msg.k8sState = k, ks
+
 	prod, err := cloud.LoadProduction()
 	if err != nil && msg.err == nil {
 		// Surfaced rather than swallowed: a configuration cx cannot read must
@@ -117,6 +129,7 @@ func loadCmd() tea.Msg {
 	}
 	cloud.MarkProduction(msg.aws, prod, "aws")
 	cloud.MarkProduction(msg.gcp, prod, "gcp")
+	cloud.MarkProduction(msg.k8s, prod, "k8s")
 	return msg
 }
 
@@ -239,11 +252,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if a, ok := m.loginActionForCursor(); ok {
 				return m, runAction(a)
 			}
+			// A key that does nothing reads as a broken key map rather than as
+			// an action that does not apply here. Say which it is.
+			if _, provider, ok := m.targetAtCursor(); ok && provider == "k8s" {
+				m.notice = "a context authenticates through its kubeconfig user — there is nothing for cx to log in to"
+			}
 			return m, nil
 
 		case "e":
 			t, provider, ok := m.targetAtCursor()
 			if !ok {
+				return m, nil
+			}
+			if provider == "k8s" {
+				m.notice = "contexts are edited with kubectl — cx writes only its own overlay"
 				return m, nil
 			}
 			f, err := editFormFor(t, provider)
@@ -255,6 +277,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, textinput.Blink
 
 		case "d":
+			if _, provider, ok := m.targetAtCursor(); ok && provider == "k8s" {
+				m.notice = "contexts are deleted with kubectl — cx only pins which one this shell uses"
+				return m, nil
+			}
 			c, ok := m.deleteConfirmation()
 			if !ok {
 				return m, nil
@@ -266,7 +292,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if !m.canSwitch {
 				return m, nil
 			}
-			s := m.scriptForCursor()
+			s, err := m.scriptForCursor()
+			if err != nil {
+				m.notice = err.Error()
+				return m, nil
+			}
 			if s == nil {
 				return m, nil
 			}
@@ -308,6 +338,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case loadedMsg:
 		m.aws, m.gcp, m.gcpState, m.adc = msg.aws, msg.gcp, msg.gcpState, msg.adc
+		m.k8s, m.k8sState = msg.k8s, msg.k8sState
 		m.err = msg.err
 		m.loaded = true
 		m.probing = true
@@ -362,6 +393,9 @@ func (m Model) targetAtCursor() (cloud.Target, string, bool) {
 	if i := m.cursor - len(m.aws); i >= 0 && i < len(m.gcp) {
 		return m.gcp[i], "gcp", true
 	}
+	if i := m.cursor - len(m.aws) - len(m.gcp); i >= 0 && i < len(m.k8s) {
+		return m.k8s[i], "k8s", true
+	}
 	return cloud.Target{}, "", false
 }
 
@@ -380,6 +414,12 @@ func switchConfirmation(t cloud.Target, s *shellcfg.Script) *confirmation {
 func (m Model) deleteConfirmation() (*confirmation, bool) {
 	t, provider, ok := m.targetAtCursor()
 	if !ok {
+		return nil, false
+	}
+	if provider == "k8s" {
+		// cx never writes the kubeconfig. Deleting a context means rewriting a
+		// file that also holds clusters and credentials cx does not manage, and
+		// kubectl already does it correctly.
 		return nil, false
 	}
 
@@ -431,18 +471,28 @@ func (m Model) loginActionForCursor() (cloud.Action, bool) {
 	if i := m.cursor - len(m.aws); i < len(m.gcp) {
 		return cloud.LoginActionGCP(m.gcp[i]), true
 	}
+	// A context has no login of its own: it names a cluster and a user that
+	// are authenticated by whatever the kubeconfig says, often an exec plugin
+	// run by the cloud provider's own CLI.
 	return cloud.Action{}, false
 }
 
 // scriptForCursor builds the environment changes for whichever row is selected.
-func (m Model) scriptForCursor() *shellcfg.Script {
+//
+// It can fail, which the AWS and gcloud switches cannot: pinning a Kubernetes
+// context writes an overlay file first, and a switch that silently did nothing
+// would leave the shell pointed where it was while the dashboard said otherwise.
+func (m Model) scriptForCursor() (*shellcfg.Script, error) {
 	if m.cursor < len(m.aws) {
-		return cloud.SwitchAWS(m.aws[m.cursor].Name)
+		return cloud.SwitchAWS(m.aws[m.cursor].Name), nil
 	}
 	if i := m.cursor - len(m.aws); i < len(m.gcp) {
-		return cloud.SwitchGCP(m.gcp[i].Name)
+		return cloud.SwitchGCP(m.gcp[i].Name), nil
 	}
-	return nil
+	if i := m.cursor - len(m.aws) - len(m.gcp); i < len(m.k8s) {
+		return cloud.SwitchK8s(m.k8s[i].Name)
+	}
+	return nil, nil
 }
 
 // markProbing flips every pending target to the probing state so the user sees
@@ -464,7 +514,7 @@ func (m Model) markProbing() Model {
 	return m
 }
 
-func (m Model) rowCount() int { return len(m.aws) + len(m.gcp) }
+func (m Model) rowCount() int { return len(m.aws) + len(m.gcp) + len(m.k8s) }
 
 const (
 	// minWidth is the narrowest terminal the dashboard will draw into.
@@ -588,15 +638,22 @@ func (m Model) compose(w int, showAlerts, showADC bool) string {
 	if showADC {
 		adc = m.renderADCPanel(w)
 	}
-	awsBudget, gcpBudget := m.tableBudgets(header, alerts, adc)
+	awsBudget, gcpBudget, k8sBudget := m.tableBudgets(header, alerts, adc)
 
 	row := 0
-	b.WriteString(m.renderPanel("AWS Profiles", m.aws, &row, w,
+	b.WriteString(m.renderPanel("AWS Profiles", m.aws, awsLabels, &row, w,
 		"no profiles yet — press a to add one", awsBudget))
 	b.WriteString("\n")
-	b.WriteString(m.renderPanel("GCP Configurations", m.gcp, &row, w,
+	b.WriteString(m.renderPanel("GCP Configurations", m.gcp, gcpLabels, &row, w,
 		"no configurations yet — press a to add one", gcpBudget))
 	b.WriteString("\n")
+	// Only when there is Kubernetes to show. Most shells have none, and an
+	// empty pane would cost height on every one of them.
+	if m.k8sState.Available {
+		b.WriteString(m.renderPanel("Kubernetes Contexts", m.k8s, k8sLabels, &row, w,
+			"no contexts in this kubeconfig", k8sBudget))
+		b.WriteString("\n")
+	}
 	if showADC {
 		b.WriteString(adc)
 		b.WriteString("\n")
@@ -718,6 +775,11 @@ func (m Model) contextRows(inner int) []string {
 		{"ADC", m.adcSummary()},
 		{"GCP Pin", m.gcpState.Source.String()},
 	}
+	if m.k8sState.Available {
+		info = append(info,
+			[2]string{"K8s Context", m.activeName(m.k8s)},
+			[2]string{"K8s Pin", m.k8sState.Source.String()})
+	}
 
 	labelW := 13
 	if labelW > inner/2 {
@@ -732,7 +794,7 @@ func (m Model) contextRows(inner int) []string {
 		}
 		rendered := dimStyle.Render("—")
 		if kv[1] != "" {
-			rendered = textStyle.Render(truncate(kv[1], valW))
+			rendered = textStyle.Render(truncateKeepingFlag(kv[1], valW))
 		}
 		rows = append(rows, " "+pad(infoKeyStyle.Render(truncate(kv[0]+":", labelW)), labelW)+rendered)
 	}
@@ -796,6 +858,7 @@ func (m Model) keyRows(inner int) []string {
 // as findings rather than as stray lines above the tables.
 func (m Model) renderAlerts(w int) string {
 	alerts := cloud.Audit(m.gcp, m.gcpState, m.adc)
+	alerts = append(alerts, cloud.AuditK8s(m.k8s, m.k8sState)...)
 	if len(alerts) == 0 {
 		return ""
 	}
@@ -810,6 +873,18 @@ func (m Model) renderAlerts(w int) string {
 		rows = append(rows, "   "+dimStyle.Render(truncate(a.Fix, w-6)))
 	}
 	return box("Warnings", len(alerts), w, rows) + "\n"
+}
+
+// truncateKeepingFlag trims a value to width while preserving a trailing
+// production flag, for the same reason nameCell does: a context name that does
+// not fit is merely unreadable, but a flag that does not fit is gone, and with
+// it the warning.
+func truncateKeepingFlag(v string, w int) string {
+	const tag = " [prod]"
+	if !strings.HasSuffix(v, tag) || w <= len(tag) {
+		return truncate(v, w)
+	}
+	return truncate(strings.TrimSuffix(v, tag), w-len(tag)) + tag
 }
 
 // nameCell renders a name with its production flag, trimming the name rather
@@ -909,7 +984,20 @@ func columns(inner int) (nameW, kindW, acctW, scopeW int, showKind, showAcct boo
 // maxRows caps how many rows are drawn. When there are more, the window scrolls
 // to keep the selected row visible and a final line says how many are hidden --
 // drawing them all would overflow the terminal and tear the frame.
-func (m Model) renderPanel(title string, targets []cloud.Target, row *int, w int, empty string, maxRows int) string {
+// columnLabels names the two middle columns, whose meaning differs by provider:
+// an AWS account and region, a gcloud account and project, a Kubernetes cluster
+// and namespace. `cx status` already names them this way. The dashboard called
+// them ACCOUNT and SCOPE for everything, which is accurate and tells the reader
+// nothing about what they are looking at.
+type columnLabels struct{ account, scope string }
+
+var (
+	awsLabels = columnLabels{account: "ACCOUNT", scope: "REGION"}
+	gcpLabels = columnLabels{account: "ACCOUNT", scope: "PROJECT"}
+	k8sLabels = columnLabels{account: "CLUSTER", scope: "NAMESPACE"}
+)
+
+func (m Model) renderPanel(title string, targets []cloud.Target, labels columnLabels, row *int, w int, empty string, maxRows int) string {
 	inner := w - 2
 	nameW, kindW, acctW, scopeW, showKind, showAcct := columns(inner)
 
@@ -920,9 +1008,9 @@ func (m Model) renderPanel(title string, targets []cloud.Target, row *int, w int
 		hdr += " " + pad("KIND", kindW)
 	}
 	if showAcct {
-		hdr += " " + pad("ACCOUNT", acctW)
+		hdr += " " + pad(labels.account, acctW)
 	}
-	hdr += " " + pad("SCOPE", scopeW) + " STATUS"
+	hdr += " " + pad(labels.scope, scopeW) + " STATUS"
 
 	rows := []string{colHeaderStyle.Render(truncate(hdr, inner))}
 	if len(targets) == 0 {
@@ -944,44 +1032,104 @@ func (m Model) renderPanel(title string, targets []cloud.Target, row *int, w int
 
 // tableBudgets divides the rows left over after the fixed parts of the screen
 // between the two tables, in proportion to how many entries each has.
-func (m Model) tableBudgets(header, alerts, adc string) (awsRows, gcpRows int) {
-	// Leading blank line, the two panel gaps, and a few lines of notes and
-	// key hints below the tables.
+func (m Model) tableBudgets(header, alerts, adc string) (awsRows, gcpRows, k8sRows int) {
+	// Leading blank line, the panel gaps, and a few lines of notes and key
+	// hints below the tables.
 	const chrome = 6
 	// Each table spends three rows on its border and column header.
 	const perTable = 3
 
+	want := []int{len(m.aws), len(m.gcp)}
+	if m.k8sState.Available {
+		want = append(want, len(m.k8s))
+	}
+
 	spare := m.layoutHeight() - countLines(header) - countLines(alerts) -
-		countLines(adc) - chrome - 2*perTable
+		countLines(adc) - chrome - len(want)*perTable
 
-	// Always offer at least one row each, so a table never collapses to a
-	// header with nothing under it.
-	if spare < 2 {
-		return 1, 1
+	got := shareRows(spare, want)
+	awsRows, gcpRows = got[0], got[1]
+	if len(got) > 2 {
+		k8sRows = got[2]
 	}
-	if len(m.aws)+len(m.gcp) <= spare {
-		return len(m.aws), len(m.gcp)
+	return awsRows, gcpRows, k8sRows
+}
+
+// shareRows splits the spare height between the tables in proportion to how
+// many rows each has, never giving one more than it needs and never leaving one
+// as a header with nothing under it.
+//
+// The budget is computed before anything is drawn, because overflowing the
+// terminal is what leaves a torn frame behind.
+func shareRows(spare int, want []int) []int {
+	out := make([]int, len(want))
+	if len(want) == 0 {
+		return out
 	}
 
-	// Split proportionally, but never give a table more than it needs.
-	total := len(m.aws) + len(m.gcp)
-	awsRows = spare * len(m.aws) / total
-	if awsRows < 1 {
-		awsRows = 1
+	// One row each is the floor: a table drawn as a bare header reads as a
+	// rendering bug rather than as a cramped terminal.
+	if spare < len(want) {
+		for i := range out {
+			out[i] = 1
+		}
+		return out
 	}
-	gcpRows = spare - awsRows
-	if gcpRows < 1 {
-		gcpRows, awsRows = 1, spare-1
+
+	total := 0
+	for _, n := range want {
+		total += n
 	}
-	if awsRows > len(m.aws) {
-		gcpRows += awsRows - len(m.aws)
-		awsRows = len(m.aws)
+	if total <= spare {
+		copy(out, want)
+		return out
 	}
-	if gcpRows > len(m.gcp) {
-		awsRows += gcpRows - len(m.gcp)
-		gcpRows = len(m.gcp)
+
+	left := spare
+	for i, n := range want {
+		r := spare * n / total
+		if r < 1 {
+			r = 1
+		}
+		out[i] = r
+		left -= r
 	}
-	return awsRows, gcpRows
+
+	// Integer division and that floor can both overshoot. Settle up against
+	// whichever tables can still spare or still use a row.
+	for left < 0 {
+		moved := false
+		for i := range out {
+			if out[i] > 1 {
+				out[i]--
+				left++
+				moved = true
+				if left == 0 {
+					break
+				}
+			}
+		}
+		if !moved {
+			break
+		}
+	}
+	for left > 0 {
+		moved := false
+		for i := range out {
+			if out[i] < want[i] {
+				out[i]++
+				left--
+				moved = true
+				if left == 0 {
+					break
+				}
+			}
+		}
+		if !moved {
+			break
+		}
+	}
+	return out
 }
 
 // visibleWindow returns the slice of rows to draw, scrolled so that the
@@ -1079,7 +1227,10 @@ func (m Model) rowBody(t cloud.Target, row, w int) string {
 	var b strings.Builder
 	b.WriteString(" " + healthStyle(t.Health).Render(healthMark(t.Health)))
 	b.WriteString(" " + markerSty.Render(marker))
-	b.WriteString(" " + nameSty.Render(pad(truncate(t.Name, nameW), nameW)))
+	// nameCell, not a bare truncate: the measured line above uses it, so
+	// anything else here renders a different width as well as dropping the
+	// production flag on every unselected row.
+	b.WriteString(" " + nameSty.Render(nameCell(t, nameW)))
 	if showKind {
 		b.WriteString(" " + kindSty.Render(pad(truncate(string(t.Kind), kindW), kindW)))
 	}

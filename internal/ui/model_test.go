@@ -142,7 +142,7 @@ func TestHeaderAlignsWithRows(t *testing.T) {
 				Account: "111122223333", Scope: "eu-west-1", Health: cloud.Valid}}}
 
 		row := 0
-		panel := stripANSI(m.renderPanel("AWS Profiles", m.aws, &row, w, "none", 99))
+		panel := stripANSI(m.renderPanel("AWS Profiles", m.aws, awsLabels, &row, w, "none", 99))
 		lines := strings.Split(panel, "\n")
 		if len(lines) < 3 {
 			t.Fatalf("panel too short at width %d", w)
@@ -187,7 +187,7 @@ func TestEveryPanelLineIsTheSameWidth(t *testing.T) {
 					Health: cloud.Expired, Detail: strings.Repeat("long detail ", 8)},
 			}}
 		row := 0
-		for i, line := range strings.Split(m.renderPanel("AWS", m.aws, &row, w, "none", 99), "\n") {
+		for i, line := range strings.Split(m.renderPanel("AWS", m.aws, awsLabels, &row, w, "none", 99), "\n") {
 			if got := lipgloss.Width(line); got != w {
 				t.Errorf("width %d: panel line %d is %d cells wide: %q", w, i, got, stripANSI(line))
 			}

@@ -143,6 +143,12 @@ func gcpConfigForm() *form {
 // creating another, and a half-completed rename would leave credentials behind
 // under the old name -- delete and re-add is the honest way to do that.
 func editFormFor(t cloud.Target, provider string) (*form, error) {
+	if provider == "k8s" {
+		// cx reads the kubeconfig and writes only its own overlay. Editing a
+		// context would mean rewriting a file holding clusters and credentials
+		// it does not manage.
+		return nil, fmt.Errorf("contexts are edited with kubectl, not cx")
+	}
 	if provider == "gcp" {
 		f, err := cloud.GCPConfigFields(t.Name)
 		if err != nil {

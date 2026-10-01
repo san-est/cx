@@ -32,6 +32,19 @@ func resizeModel(w int) Model {
 			Source: cloud.SourceGlobal},
 		adc: cloud.ADC{Present: true, Identity: "dev@example.com",
 			QuotaProject: "devops-platform-1234", Health: cloud.Valid},
+		// Real context names are long: EKS uses a full ARN and GKE a
+		// four-part name, which is what makes the name column fight for room.
+		k8s: []cloud.Target{
+			{Name: "arn:aws:eks:eu-west-1:749929395228:cluster/platform",
+				Kind: cloud.KindContext, Account: "platform", Scope: "payments",
+				Active: true, Health: cloud.Valid},
+			{Name: "gke_acme-prod_europe-west1_main", Kind: cloud.KindContext,
+				Account: "gke-main", Scope: "default", Health: cloud.Missing,
+				Detail: "cluster not defined in kubeconfig"},
+		},
+		k8sState: cloud.K8sState{Available: true,
+			Active: "arn:aws:eks:eu-west-1:749929395228:cluster/platform",
+			Source: cloud.SourceGlobal},
 	}
 }
 
@@ -61,15 +74,30 @@ func TestNoLineOverflowsAtAnyWidth(t *testing.T) {
 // TestHeaderStacksWhenNarrow covers the two header panels sitting side by side
 // only while there is room, and stacking rather than overflowing below that.
 func TestHeaderStacksWhenNarrow(t *testing.T) {
-	// Two borders plus five body rows, all three panels the same height.
+	// Side by side, the header is as tall as its tallest panel plus a border.
+	// The exact number depends on how much there is to report -- a machine with
+	// Kubernetes has two more context rows than one without -- so the invariant
+	// is the relationship between the two layouts, not a constant.
 	wide := strings.Split(resizeModel(120).renderHeader(120), "\n")
-	if len(wide) != 7 {
-		t.Errorf("at 120 columns the header should be 7 lines side by side, got %d", len(wide))
-	}
-
 	narrow := strings.Split(resizeModel(60).renderHeader(60), "\n")
-	if len(narrow) <= 7 {
-		t.Errorf("at 60 columns the header should stack into more lines, got %d", len(narrow))
+
+	if len(narrow) <= len(wide) {
+		t.Errorf("at 60 columns the header should stack and grow taller: wide %d lines, narrow %d",
+			len(wide), len(narrow))
+	}
+	// Side by side is better shown than counted: a row carrying content from
+	// the context panel and the key map at once can only be the two of them
+	// drawn beside each other.
+	sideBySide := false
+	for _, line := range strings.Split(stripANSI(resizeModel(120).renderHeader(120)), "\n") {
+		if strings.Contains(line, "AWS Profile") && strings.Contains(line, "navigate") {
+			sideBySide = true
+			break
+		}
+	}
+	if !sideBySide {
+		t.Errorf("no row carries both panels, so they are not side by side:\n%s",
+			stripANSI(resizeModel(120).renderHeader(120)))
 	}
 	// Stacking must not lose anything.
 	out := stripANSI(resizeModel(60).renderHeader(60))

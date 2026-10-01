@@ -258,9 +258,28 @@ cx use k8s prod       # this shell only
 cx clear k8s          # back to the shared default, still pinned
 ```
 
-`cx status` lists the contexts with their cluster and namespace, and exits `2`
-while the selection is one another terminal can change. The prompt segment
-marks it:
+The dashboard shows them in their own pane, alongside AWS and gcloud, with the
+cluster and namespace each one resolves to:
+
+```
+╭─ Kubernetes Contexts(3) ─────────────────────────────────────────────────────────╮
+│     NAME               KIND         CLUSTER          NAMESPACE        STATUS     │
+│ ●   arn:aws:eks:eu-we… context      platform         payments         valid      │
+│ ● ▪ gke_acme-p… [prod] context      gke-main         default          valid      │
+│ ○   orphaned           context      deleted-cluster  default          cluster no…│
+╰──────────────────────────────────────────────────────────────────────────────────╯
+```
+
+`enter` pins the selected context to this shell. A context whose cluster or user
+is no longer defined is flagged there and then, rather than when a command
+later fails on it.
+
+`e`, `d` and `l` do not apply to a context and say so: cx reads the kubeconfig
+and writes only its own overlay, so editing and deleting belong to kubectl, and
+a context authenticates through whatever user its kubeconfig names.
+
+`cx status` lists the same contexts and exits `2` while the selection is one
+another terminal can change. The prompt segment marks it:
 
 ```
 ~/work  k8s:prod!     # ! means the shared kubeconfig decides this
@@ -436,8 +455,7 @@ should not be able to run anything when the wrapper sources the script.
       cannot retarget another. Implemented as a kubeconfig *overlay* rather
       than the copy originally planned: a copy goes stale and duplicates
       credentials, while an overlay carries only a context name
-- [ ] Kubernetes pane in the dashboard (`cx status` and the prompt already
-      cover it)
+- [x] Kubernetes pane in the dashboard
 - [x] Mark targets as production in a config file; require confirmation
 - [x] Add and re-authenticate targets from the dashboard
 - [ ] `cx add aws <name>` for static-key profiles from the command line
