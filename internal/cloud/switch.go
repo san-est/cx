@@ -84,5 +84,22 @@ func Clear(scope string) *shellcfg.Script {
 			s.Note("cx: cleared gcloud overrides")
 		}
 	}
+	if scope == "k8s" || scope == "all" {
+		// Same reasoning as gcloud, by value rather than by reference: merely
+		// unsetting KUBECONFIG would hand the shell back to the file every
+		// terminal shares, so clearing would recreate the hazard.
+		shared := sharedKubeContext()
+		path, err := "", error(nil)
+		if shared != "" {
+			path, err = writeKubeOverlay(shared)
+		}
+		if shared == "" || err != nil {
+			s.Unset("KUBECONFIG")
+			s.Note("cx: cleared the kubernetes override")
+		} else {
+			s.Export("KUBECONFIG", kubeconfigWith(path))
+			s.Note("cx: kubernetes reset to the shared default (%s), pinned to this shell", shared)
+		}
+	}
 	return s
 }

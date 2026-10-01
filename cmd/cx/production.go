@@ -84,8 +84,11 @@ func takeYesFlag(args []string) ([]string, bool) {
 
 // providerLabel names a provider the way the user would.
 func providerLabel(provider string) string {
-	if provider == "gcp" {
+	switch provider {
+	case "gcp":
 		return "gcloud configuration"
+	case "k8s":
+		return "Kubernetes context"
 	}
 	return "AWS profile"
 }

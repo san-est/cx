@@ -130,3 +130,40 @@ func TestAuditFlagsCoreEnvOverrides(t *testing.T) {
 		t.Errorf("expected a CLOUDSDK_CORE_PROJECT alert, got %+v", alerts)
 	}
 }
+
+func TestAuditK8sFlagsASharedContext(t *testing.T) {
+	contexts := []Target{{Name: "prod"}}
+	state := K8sState{Available: true, Active: "prod", Source: SourceGlobal}
+
+	alerts := AuditK8s(contexts, state)
+	if !HasDanger(alerts) {
+		t.Errorf("a context from the shared kubeconfig must be Danger, got %+v", alerts)
+	}
+}
+
+func TestAuditK8sSilentWhenPinned(t *testing.T) {
+	contexts := []Target{{Name: "prod"}}
+	state := K8sState{Available: true, Active: "prod", Source: SourceShell}
+
+	if alerts := AuditK8s(contexts, state); len(alerts) != 0 {
+		t.Errorf("a shell-local context needs no alert, got %+v", alerts)
+	}
+}
+
+func TestAuditK8sFlagsADanglingCurrentContext(t *testing.T) {
+	// kubectl fails on every command until this is fixed, with an error about
+	// the context rather than about the selection that chose it.
+	state := K8sState{Available: true, Active: "deleted", Source: SourceShell}
+
+	alerts := AuditK8s([]Target{{Name: "prod"}}, state)
+	if !HasDanger(alerts) {
+		t.Errorf("a current-context naming nothing must be Danger, got %+v", alerts)
+	}
+}
+
+func TestAuditK8sSaysNothingWithoutKubernetes(t *testing.T) {
+	// Most shells have no kubectl. That must produce no output at all.
+	if alerts := AuditK8s(nil, K8sState{Available: false}); len(alerts) != 0 {
+		t.Errorf("want silence when kubernetes is unavailable, got %+v", alerts)
+	}
+}

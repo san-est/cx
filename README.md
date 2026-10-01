@@ -60,8 +60,10 @@ cx status               one-shot report; exits 2 if the shell can be misdirected
 cx status --no-probe    same, no network, instant
 cx use aws <profile>    point this shell at an AWS profile
 cx use gcp <config>     point this shell at a gcloud configuration
+cx use k8s <context>    point this shell at a Kubernetes context
                         --yes confirms a target marked production
-cx clear [aws|gcp|all]  drop this shell's overrides
+cx clear [aws|gcp|k8s|all]
+                        drop this shell's overrides
 cx prompt               compact status for a shell prompt
 cx shell-init [shell]   print the shell wrapper (zsh or bash)
 cx version              print the version, revision, and platform
@@ -244,6 +246,70 @@ fails silently.
 `shell-init` skips `RPROMPT` when starship is running, since starship rewrites
 it on every render. Set `CX_NO_RPROMPT=1` to skip it in any shell.
 
+## Kubernetes
+
+`kubectl config use-context` writes to `~/.kube/config`, a file every terminal
+on the machine reads. Switching context in one window silently retargets all of
+them — the same hazard as `gcloud config configurations activate`, in a
+different file.
+
+```sh
+cx use k8s prod       # this shell only
+cx clear k8s          # back to the shared default, still pinned
+```
+
+`cx status` lists the contexts with their cluster and namespace, and exits `2`
+while the selection is one another terminal can change. The prompt segment
+marks it:
+
+```
+~/work  k8s:prod!     # ! means the shared kubeconfig decides this
+~/work  k8s:prod      # pinned to this shell
+```
+
+### How the pin works
+
+Switching writes a **kubeconfig overlay**: a four-line file carrying nothing but
+`current-context`, placed at the front of `KUBECONFIG`.
+
+```yaml
+# Written by cx. Points this shell, and only this shell, at one context.
+apiVersion: v1
+kind: Config
+current-context: 'prod'
+```
+
+kubectl merges every file on the search path and takes `current-context` from
+the first that sets one, so this shell is retargeted while `~/.kube/config` is
+never written to.
+
+Copying the whole kubeconfig is the obvious alternative and a worse one. The
+copy goes stale the moment a cluster is added, and it duplicates every bearer
+token and client certificate into a second file on disk. The overlay holds one
+context name and no credentials at all.
+
+It also makes `kubectl config use-context` shell-local **as a side effect**,
+because kubectl writes `current-context` to the first file on the search path,
+which is now cx's overlay. The habit stops being dangerous rather than being
+reported forever — the same reasoning as the gcloud auto-pin.
+
+Overlays live in `$XDG_STATE_HOME/cx/kube` (or `~/.local/state/cx/kube`), one
+per shell, named by the shell's process id. `CX_KUBE_DIR` overrides the
+location.
+
+### Reading the config
+
+`cx` runs `kubectl config view -o json` rather than parsing the kubeconfig
+itself. This is a deliberate exception to reading configuration from disk: a
+YAML dependency would be a third-party parser running against a file holding
+client certificates, a hand-rolled one would be a YAML subset parser, and
+kubectl is a Go binary that costs about 28 ms here — against gcloud's 400 ms —
+and **redacts every credential** before cx sees the bytes.
+
+The prompt segment does not pay that cost. It reads `current-context` from the
+first kubeconfig that sets one, which is cx's own overlay whenever the shell is
+pinned.
+
 ## Production targets
 
 Some targets deserve a pause. Name them in `~/.config/cx/config`, by exact name
@@ -253,6 +319,7 @@ or by glob:
 [production]
 aws = client-prod, *-prod
 gcp = acme-prod, prod-*
+k8s = prod, *-prod
 ```
 
 `$XDG_CONFIG_HOME` is honoured, and `CX_CONFIG` overrides the path outright.
@@ -365,8 +432,12 @@ should not be able to run anything when the wrapper sources the script.
 - [x] Phase 1 — read-only dashboard across AWS, GCP, and ADC
 - [x] Prompt segment
 - [x] Phase 2 — switching via the shell wrapper, environment variables only
-- [ ] Phase 3 — Kubernetes pane, with a per-shell kubeconfig copy so
-      `use-context` in one terminal cannot retarget another
+- [x] Phase 3 — per-shell Kubernetes context, so `use-context` in one terminal
+      cannot retarget another. Implemented as a kubeconfig *overlay* rather
+      than the copy originally planned: a copy goes stale and duplicates
+      credentials, while an overlay carries only a context name
+- [ ] Kubernetes pane in the dashboard (`cx status` and the prompt already
+      cover it)
 - [x] Mark targets as production in a config file; require confirmation
 - [x] Add and re-authenticate targets from the dashboard
 - [ ] `cx add aws <name>` for static-key profiles from the command line

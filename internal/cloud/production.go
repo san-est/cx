@@ -5,6 +5,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -36,6 +37,7 @@ func ConfigPath() string {
 type Production struct {
 	AWS []string
 	GCP []string
+	K8s []string
 }
 
 // LoadProduction reads the flagged patterns. A missing configuration file
@@ -48,11 +50,12 @@ func LoadProduction() (Production, error) {
 	p := Production{
 		AWS: splitPatterns(cfg.get("production", "aws")),
 		GCP: splitPatterns(cfg.get("production", "gcp")),
+		K8s: splitPatterns(cfg.get("production", "k8s")),
 	}
 	// A typo in a pattern silently protects nothing, which is the most
 	// dangerous way for this feature to fail. Report it rather than ignoring
 	// the line.
-	for _, pat := range append(append([]string{}, p.AWS...), p.GCP...) {
+	for _, pat := range slices.Concat(p.AWS, p.GCP, p.K8s) {
 		if _, err := path.Match(pat, ""); err != nil {
 			return p, fmt.Errorf("production pattern %q in %s: %w", pat, ConfigPath(), err)
 		}
@@ -74,8 +77,11 @@ func splitPatterns(v string) []string {
 
 // Patterns returns the patterns for a provider, "aws" or "gcp".
 func (p Production) Patterns(provider string) []string {
-	if provider == "gcp" {
+	switch provider {
+	case "gcp":
 		return p.GCP
+	case "k8s":
+		return p.K8s
 	}
 	return p.AWS
 }
