@@ -23,6 +23,9 @@ const usage = `cx - cloud context
   cx use gcp <config>     point this shell at a gcloud configuration
   cx use k8s <context>    point this shell at a Kubernetes context
                           --yes confirms a target marked production
+  cx add aws <name>       create a key-based AWS profile
+                          --region, --access-key, --with-session-token, --force
+                          credentials are asked for, never taken as arguments
   cx clear [aws|gcp|k8s|all]
                           drop this shell's overrides
   cx prompt [--warn]      compact status for a shell prompt (no network)
@@ -62,6 +65,8 @@ func main() {
 		os.Exit(runStatus(probe))
 	case "use":
 		os.Exit(runUse(args[1:]))
+	case "add":
+		os.Exit(runAdd(args[1:]))
 	case "clear":
 		os.Exit(runClear(args[1:]))
 	case "prompt":

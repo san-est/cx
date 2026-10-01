@@ -7,6 +7,8 @@ import (
 	"os"
 	"strings"
 
+	"github.com/charmbracelet/x/term"
+
 	"github.com/san-est/cx/internal/cloud"
 )
 
@@ -43,13 +45,7 @@ func productionGate(p cloud.Production, provider, name string, assumeYes, intera
 }
 
 // interactiveStdin reports whether stdin is a terminal a question can be put to.
-func interactiveStdin() bool {
-	info, err := os.Stdin.Stat()
-	if err != nil {
-		return false
-	}
-	return info.Mode()&os.ModeCharDevice != 0
-}
+func interactiveStdin() bool { return term.IsTerminal(os.Stdin.Fd()) }
 
 // askToSwitch puts the question and reports whether the answer was yes.
 // Anything that is not an explicit yes is a no, including end of input.
